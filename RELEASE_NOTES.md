@@ -1,37 +1,35 @@
-# Release v1.0.2 — Denarmo's Warfarer Revamped
+# Release v1.0.3 — Denarmo's Warfarer Revamped
 
 **Denarmo's Warfarer Revamped** is an all-in-one REFramework modification for *Dragon's Dogma 2*, updated with full support for the *Dragon's Dogma 2: Dark Arisen* expansion.
 
 ---
 
-### 🚀 What's New in v1.0.2
+### 🚀 What's New in v1.0.3
 
-1. **Auto-Load Guild-Assigned Class Skills on Weapon Swap:**
-   - You can now configure skills at any Vocation Guild or Inn for each individual class (Fighter, Archer, Mage, Thief, etc.).
-   - When playing as Warfarer, switching to any weapon automatically reads and equips the skills assigned to that class at the guild.
-   - Includes a one-click button in the REFramework menu to import all currently equipped guild skills into your custom presets.
+1. **Fixed & Enhanced Combat Damage Log (HUD Chat Overlay):**
+   - **Reliable Damage Capture:** Fixed entity and projectile resolution in the IL2CPP damage hook (`app.HitController:updateDamage`). Attacking with any weapon type, arrow, magick bolt, spell, or pawn attack now reliably logs damage dealt to monsters and bosses.
+   - **Foreground Overlay Rendering:** The combat log is now drawn via a dedicated transparent overlay window on the top ImGui layer, eliminating issues where DirectX 12 or scene post-processing occluded background draw calls.
+   - **Font & Glyph Safety:** Eliminated multi-byte UTF-8 glyphs in favor of ASCII labels (`[Combat Log]`, `->`, `[WEAKPOINT!]`), preventing font renderer crashes or silent text drops on standard REFramework font configurations.
+   - **Live HUD Preview Mode:** Added a "Preview Damage Log in HUD" toggle in the REFramework menu so you can keep sample entries on screen while adjusting screen corner, margins X/Y, width, and background opacity.
+   - **Enabled by Default:** Fresh installations now have the Combat Damage Log enabled by default.
 
-2. **Rearmament is No Longer Required in Skill Palettes:**
-   - Because weapon swapping is executed via the radial HUD wheel and fast indexed equipping, Rearmament does **not** need to take up a custom skill slot.
-   - All 4 (or 6) skill slots can be assigned to actual combat abilities.
-
-3. **All Skills Available in Presets (Even if Not Yet Unlocked):**
-   - Unlocked/purchased status is no longer a restriction in the REFramework configuration menu.
-   - All weapon skills (including base abilities, maister skills, and Dark Arisen CS13–CS15 abilities) are selectable and ready for use.
-
-4. **Combat Damage Log UI (HUD Chatbox Style):**
-   - An integrated on-screen combat log displaying real-time damage numbers when you and your pawns attack enemies.
-   - Positionable at any corner of the screen (**Bottom-Left**, **Top-Left**, **Bottom-Right**, **Top-Right**) with configurable offsets, width, and background opacity.
-   - Features real-time DPS and encounter damage calculations in the header.
-   - Smooth alpha fadeout for older combat entries.
-   - Color highlights for weakpoint / critical strikes and large hits.
-   - Includes a "Send Test Log Entries" preview button in the menu.
+2. **Restore Defaults for Each Setting & Category:**
+   - **Individual Setting Reset:** Every single setting (sliders, checkboxes, combos) now features a dedicated `[Reset]` button right next to it, allowing you to instantly revert any individual setting back to its factory default without touching the rest of your setup.
+   - **Section Restore Buttons:** Added one-click restore buttons for every major category:
+     - *Restore General Defaults*
+     - *Restore Slow Motion Defaults*
+     - *Restore Controller Defaults*
+     - *Restore Look Defaults*
+     - *Restore Mouse Defaults*
+     - *Restore Skillset Settings Defaults*
+     - *Restore Damage Log Defaults*
+   - **Master Restore:** Added a top-level *Restore All Mod Settings to Defaults* button for a complete, clean reset.
 
 ---
 
 ### 📦 Release Asset
-- `Denarmo's Warfarer Revamped v1.0.2.zip` (located in the `build/` folder)
+- `Denarmo's Warfarer Revamped v1.0.3.zip` (located in the `build/` folder)
 
 ### 💻 Installation
-- **Fluffy Mod Manager:** Place `Denarmo's Warfarer Revamped v1.0.2.zip` in `<Fluffy Mod Manager>\Games\DragonsDogma2\Mods\`, refresh the mod list, and enable it.
+- **Fluffy Mod Manager:** Place `Denarmo's Warfarer Revamped v1.0.3.zip` in `<Fluffy Mod Manager>\Games\DragonsDogma2\Mods\`, refresh the mod list, and enable it.
 - **Manual:** Extract `reframework/` to your Dragon's Dogma 2 game directory. Requires [REFramework](https://github.com/praydog/REFramework).

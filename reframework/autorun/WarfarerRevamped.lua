@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.2", 43
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.3", 43
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -112,7 +112,8 @@ local DEFAULTS = {
   load_guild_class_skills = true,
   unlock_all_skills_in_presets = true,
   -- Combat Damage Log UI
-  damage_log_enabled = false,
+  damage_log_enabled = true,
+  damage_log_preview = false,
   damage_log_corner = 1, -- 1: Bottom-Left, 2: Top-Left, 3: Bottom-Right, 4: Top-Right
   damage_log_max_lines = 8,
   damage_log_duration = 5.0,
@@ -4193,6 +4194,106 @@ local function format_number(n)
   return left .. (num:reverse():gsub('(%d%d%d)', '%1,'):reverse()) .. right
 end
 
+local function extract_damage(info)
+  if not info then return 0 end
+  local val = nil
+  pcall(function()
+    if type(info.Damage) == "number" then
+      val = info.Damage
+    elseif type(info.Damage) == "function" then
+      val = info:Damage()
+    end
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  pcall(function()
+    if info.get_Damage then val = info:get_Damage() end
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  pcall(function()
+    val = info:call("get_Damage")
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  pcall(function()
+    val = info:get_field("Damage")
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  pcall(function()
+    val = info["<Damage>k__BackingField"]
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  pcall(function()
+    val = info:get_field("<Damage>k__BackingField")
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  pcall(function()
+    val = info:get_field("HitDamage") or (info.get_HitDamage and info:get_HitDamage())
+  end)
+  if val and tonumber(val) and tonumber(val) > 0 then return math.floor(tonumber(val)) end
+
+  return 0
+end
+
+local function is_weakpoint(info)
+  if not info then return false end
+  local res = false
+  pcall(function()
+    if type(info.IsWeakPoint) == "boolean" then
+      res = info.IsWeakPoint
+    elseif type(info.IsWeakPoint) == "function" then
+      res = info:IsWeakPoint()
+    end
+  end)
+  if res then return true end
+
+  pcall(function()
+    if info.get_IsWeakPoint then res = info:get_IsWeakPoint() end
+  end)
+  if res then return true end
+
+  pcall(function()
+    res = info:call("get_IsWeakPoint")
+  end)
+  if res then return true end
+
+  pcall(function()
+    res = info:get_field("IsWeakPoint") or info["<IsWeakPoint>k__BackingField"] or info:get_field("<IsWeakPoint>k__BackingField")
+  end)
+  if res then return true end
+
+  return false
+end
+
+local function get_character_from_hit_ctrl(ctrl)
+  if not ctrl then return nil end
+  local ch = nil
+  pcall(function()
+    ch = ctrl:get_CachedCharacter() or ctrl:get_Character() or ctrl:get_OwnerCharacter()
+  end)
+  if ch then return ch end
+  pcall(function()
+    ch = ctrl:call("get_CachedCharacter") or ctrl:call("get_Character") or ctrl:call("get_OwnerCharacter")
+  end)
+  if ch then return ch end
+  pcall(function()
+    ch = ctrl:get_field("CachedCharacter") or ctrl:get_field("<CachedCharacter>k__BackingField")
+  end)
+  if ch then return ch end
+  pcall(function()
+    local go = ctrl:get_GameObject()
+    if go then
+      local cType = sdk.find_type_definition("app.Character")
+      if cType then ch = go:get_Component(cType) end
+    end
+  end)
+  return ch
+end
+
 local DamageLog = {
   entries = {},
   total_damage = 0,
@@ -4240,11 +4341,21 @@ function DamageLog.render()
     end
   end
 
+  -- Preview mode: display sample lines if no active hits
+  if cfg.damage_log_preview and #active == 0 then
+    table.insert(active, { damage = 350, target = "Goblin", isWeakPoint = false, isPawn = false, time = now })
+    table.insert(active, { damage = 1420, target = "Cyclops", isWeakPoint = true, isPawn = false, time = now })
+    if cfg.damage_log_include_pawns then
+      table.insert(active, { damage = 280, target = "Harpy", isWeakPoint = false, isPawn = true, time = now })
+    end
+  end
+
   if #active == 0 then return end
 
-  local ok, disp = pcall(imgui.get_display_size)
-  if not ok or not disp then return end
-  local sw, sh = disp.x, disp.y
+  local sw, sh = screen_size()
+  if not sw or not sh or sw <= 0 or sh <= 0 then
+    sw, sh = 1920, 1080
+  end
 
   local w = cfg.damage_log_width or 380
   local lineH = 22
@@ -4267,16 +4378,12 @@ function DamageLog.render()
     y = sh - h - y
   end
 
-  local draw_list = imgui.get_background_draw_list()
-  local p1 = Vector2f.new(x, y)
-  local p2 = Vector2f.new(x + w, y + h)
+  x = math.max(0, math.min(sw - w, x))
+  y = math.max(0, math.min(sh - h, y))
 
-  local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.05, 1.0) * 255)
+  local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
   local bgColor = (bgAlpha << 24) | 0x00121216
   local borderColor = (bgAlpha << 24) | 0x0062B2D6 -- Warfarer Gold
-
-  draw_list:add_rect_filled(p1, p2, bgColor, 6.0)
-  draw_list:add_rect(p1, p2, borderColor, 6.0, 0, 1.5)
 
   -- Header with combat DPS if active
   local dps = 0
@@ -4285,45 +4392,79 @@ function DamageLog.render()
     dps = math.floor(DamageLog.recent_damage / combatDuration)
   end
 
-  local headerStr = "âš” Combat Log"
+  local headerStr = "[Combat Log]"
   if cfg.damage_log_show_dps and dps > 0 then
-    headerStr = string.format("âš” Combat Log  |  DPS: %s  |  Total: %s", format_number(dps), format_number(DamageLog.recent_damage))
+    headerStr = string.format("[Combat Log]  DPS: %s  Total: %s", format_number(dps), format_number(DamageLog.recent_damage))
+  elseif cfg.damage_log_preview and #DamageLog.entries == 0 then
+    headerStr = "[Combat Log]  (Preview Mode)"
   end
-  draw_list:add_text(Vector2f.new(x + 10, y + 6), 0xFF8AC0D8, headerStr)
-  draw_list:add_line(Vector2f.new(x + 6, y + headerH), Vector2f.new(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
 
-  -- Render damage lines
-  for idx, entry in ipairs(active) do
-    local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-    local age = now - entry.time
-    local alphaK = 1.0
-    if age > (duration - 1.0) then
-      alphaK = math.max(0.0, duration - age)
-    end
-    local aByte = math.floor(alphaK * 255)
-    if aByte > 0 then
-      local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-      local tagColor = entry.isPawn and ((aByte << 24) | 0x00FFD0A0) or ((aByte << 24) | 0x0062B2D6)
+  pcall(imgui.set_next_window_pos, v2(0, 0), 1)
+  pcall(imgui.set_next_window_size, v2(sw, sh), 1)
+  local began = pcall(imgui.begin_window, "##WarfarerDamageLogOverlay", nil, OVERLAY_FLAGS)
+  local draw_list = nil
+  if began then
+    local okd, dl = pcall(imgui.get_window_draw_list)
+    if okd and dl then draw_list = dl end
+  end
+  if not draw_list and imgui.get_overlay_draw_list then
+    local okd, dl = pcall(imgui.get_overlay_draw_list)
+    if okd and dl then draw_list = dl end
+  end
+  if not draw_list and imgui.get_background_draw_list then
+    local okd, dl = pcall(imgui.get_background_draw_list)
+    if okd and dl then draw_list = dl end
+  end
 
-      draw_list:add_text(Vector2f.new(x + 10, lineY), tagColor, tag)
+  if draw_list then
+    local p1 = v2(x, y)
+    local p2 = v2(x + w, y + h)
 
-      local targetText = " â†’ " .. entry.target .. ":"
-      draw_list:add_text(Vector2f.new(x + 85, lineY), (aByte << 24) | 0x00CCCCCC, targetText)
+    pcall(function()
+      draw_list:add_rect_filled(p1, p2, bgColor, 6.0)
+      draw_list:add_rect(p1, p2, borderColor, 6.0, 0, 1.5)
+      draw_list:add_text(v2(x + 10, y + 6), 0xFF8AC0D8, headerStr)
+      draw_list:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
+    end)
 
-      local dmgStr = format_number(entry.damage)
-      if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-        dmgStr = dmgStr .. " [WEAKPOINT!]"
+    -- Render damage lines
+    for idx, entry in ipairs(active) do
+      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+      local age = now - entry.time
+      local alphaK = 1.0
+      if age > (duration - 1.0) then
+        alphaK = math.max(0.0, duration - age)
       end
+      local aByte = math.floor(alphaK * 255)
+      if aByte > 0 then
+        local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+        local tagColor = entry.isPawn and ((aByte << 24) | 0x00FFD0A0) or ((aByte << 24) | 0x0062B2D6)
 
-      local dmgColor = (aByte << 24) | 0x00FFFFFF
-      if entry.isWeakPoint then
-        dmgColor = (aByte << 24) | 0x003355FF -- Red/Orange in ABGR
-      elseif entry.damage >= 1000 then
-        dmgColor = (aByte << 24) | 0x0055D7FF -- Gold
+        pcall(function()
+          draw_list:add_text(v2(x + 10, lineY), tagColor, tag)
+          local targetText = " -> " .. entry.target .. ":"
+          draw_list:add_text(v2(x + 85, lineY), (aByte << 24) | 0x00CCCCCC, targetText)
+
+          local dmgStr = format_number(entry.damage)
+          if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+            dmgStr = dmgStr .. " [WEAKPOINT!]"
+          end
+
+          local dmgColor = (aByte << 24) | 0x00FFFFFF
+          if entry.isWeakPoint then
+            dmgColor = (aByte << 24) | 0x003355FF -- Red/Orange in ABGR
+          elseif entry.damage >= 1000 then
+            dmgColor = (aByte << 24) | 0x0055D7FF -- Gold
+          end
+
+          draw_list:add_text(v2(x + 205, lineY), dmgColor, dmgStr)
+        end)
       end
-
-      draw_list:add_text(Vector2f.new(x + 205, lineY), dmgColor, dmgStr)
     end
+  end
+
+  if began then
+    pcall(imgui.end_window)
   end
 end
 
@@ -4331,87 +4472,191 @@ end
 local damage_hook_initialized = false
 local function init_damage_hook()
   if damage_hook_initialized then return end
-  pcall(function()
+  local ok, err = pcall(function()
     local hitCtrlType = sdk.find_type_definition("app.HitController")
     if not hitCtrlType then return end
     local mUpdate = hitCtrlType:get_method("updateDamage")
     if not mUpdate then return end
 
     damage_hook_initialized = true
-    local tmpHitInfo = nil
-    local tmpHitCtrl = nil
+    log_act("Combat Damage hook initialized on app.HitController:updateDamage")
+
+    local curHitInfo = nil
+    local curHitCtrl = nil
+    local preDamage = 0
 
     sdk.hook(mUpdate,
       function(args)
         if not cfg.damage_log_enabled then return end
-        tmpHitCtrl = sdk.to_managed_object(args[2])
-        tmpHitInfo = sdk.to_managed_object(args[3])
+        curHitCtrl = sdk.to_managed_object(args[2])
+        curHitInfo = sdk.to_managed_object(args[3])
+        if curHitInfo then
+          preDamage = extract_damage(curHitInfo)
+        else
+          preDamage = 0
+        end
       end,
-      function()
-        if not cfg.damage_log_enabled or not tmpHitInfo or not tmpHitCtrl then
-          tmpHitInfo = nil
-          tmpHitCtrl = nil
-          return
+      function(retval)
+        if not cfg.damage_log_enabled or not curHitInfo or not curHitCtrl then
+          curHitInfo = nil
+          curHitCtrl = nil
+          preDamage = 0
+          return retval
         end
 
-        pcall(function()
-          local chara = tmpHitCtrl:get_CachedCharacter()
-          if not chara then return end
+        local hitCtrl = curHitCtrl
+        local hitInfo = curHitInfo
+        local preDmg = preDamage
+        curHitInfo = nil
+        curHitCtrl = nil
+        preDamage = 0
 
-          local dmg = tonumber(tmpHitInfo.Damage) or 0
+        pcall(function()
+          local targetChara = get_character_from_hit_ctrl(hitCtrl)
+          if not targetChara then return end
+
+          local dmg = extract_damage(hitInfo)
+          if dmg <= 0 and preDmg > 0 then
+            dmg = preDmg
+          end
+          if dmg <= 0 and retval then
+            local rNum = tonumber(sdk.to_int64(retval))
+            if rNum and rNum > 0 and rNum < 10000000 then
+              dmg = rNum
+            end
+          end
           if dmg <= 0 then return end
 
-          local ownerObj = tmpHitInfo["<AttackOwnerObject>k__BackingField"]
+          -- Player and pawn references
+          local pChar = P.char or (P.human and mcall(P.human, "get_CachedCharacter"))
+          if not pChar then
+            local cm = sdk.get_managed_singleton("app.CharacterManager")
+            if cm then pChar = mcall(cm, "get_ManualPlayer()") end
+          end
+          local pGO = pChar and mcall(pChar, "get_GameObject()")
+
+          local mainPawn = nil
+          pcall(function()
+            local cm = sdk.get_managed_singleton("app.CharacterManager")
+            if cm then
+              local pl = mcall(cm, "get_ManualPlayer()")
+              if pl then mainPawn = mcall(pl, "get_MainPawn()") end
+            end
+          end)
+          local pawnGO = mainPawn and mcall(mainPawn, "get_GameObject()")
+
+          local targetGO = mcall(targetChara, "get_GameObject()")
+
+          -- Check if target is player or friendly pawn
+          if (pChar and targetChara == pChar) or (pGO and targetGO == pGO) then
+            return
+          end
+          if (mainPawn and targetChara == mainPawn) or (pawnGO and targetGO == pawnGO) then
+            return
+          end
+
+          -- Match attacker
           local isPlayer = false
           local isPawn = false
 
-          local pChar = P.char or (P.human and mcall(P.human, "get_CachedCharacter"))
-          local pGO = pChar and pChar:get_GameObject()
+          local function check_obj(obj)
+            if not obj then return false, false end
+            if pGO and obj == pGO then return true, false end
+            if pawnGO and obj == pawnGO then return false, true end
 
-          if pGO and ownerObj == pGO then
-            isPlayer = true
-          elseif ownerObj then
+            local isP, isPw = false, false
             pcall(function()
-              local charMgr = sdk.get_managed_singleton("app.CharacterManager")
-              if charMgr then
-                local player = charMgr:get_ManualPlayer()
-                if player then
-                  local mainPawn = player:get_MainPawn()
-                  if mainPawn and mainPawn:get_GameObject() == ownerObj then
-                    isPawn = true
-                  end
+              local xf = obj:get_Transform()
+              if xf then
+                local root = xf:get_Root()
+                local rGO = root and root:get_GameObject()
+                if pGO and rGO == pGO then isP = true end
+                if pawnGO and rGO == pawnGO then isPw = true end
+
+                if not isP and not isPw then
+                  local parent = xf:get_Parent()
+                  local parGO = parent and parent:get_GameObject()
+                  if pGO and parGO == pGO then isP = true end
+                  if pawnGO and parGO == pawnGO then isPw = true end
                 end
               end
             end)
+            return isP, isPw
+          end
+
+          -- 1. Check AttackOwnerObject
+          local ownerObj = nil
+          pcall(function()
+            ownerObj = (hitInfo.get_AttackOwnerObject and hitInfo:get_AttackOwnerObject()) or hitInfo:call("get_AttackOwnerObject")
+          end)
+          if not ownerObj then
+            pcall(function()
+              ownerObj = hitInfo:get_field("AttackOwnerObject") or hitInfo["<AttackOwnerObject>k__BackingField"] or hitInfo:get_field("<AttackOwnerObject>k__BackingField")
+            end)
+          end
+          if not ownerObj then
+            pcall(function() ownerObj = hitInfo.AttackOwnerObject end)
+          end
+
+          if ownerObj then
+            local isP, isPw = check_obj(ownerObj)
+            if isP then isPlayer = true end
+            if isPw then isPawn = true end
+          end
+
+          -- 2. Check AttackOwnerCharacter / Attacker
+          if not isPlayer and not isPawn then
+            pcall(function()
+              local atkChara = mcall(hitInfo, "get_AttackOwnerCharacter()") or mcall(hitInfo, "get_AttackOwner()") or mcall(hitInfo, "get_OwnerCharacter()")
+              if atkChara then
+                if pChar and atkChara == pChar then isPlayer = true
+                elseif mainPawn and atkChara == mainPawn then isPawn = true
+                else
+                  local atkGO = mcall(atkChara, "get_GameObject()")
+                  local isP, isPw = check_obj(atkGO)
+                  if isP then isPlayer = true end
+                  if isPw then isPawn = true end
+                end
+              end
+            end)
+          end
+
+          -- 3. If could not definitively attribute to pawn, attribute to player (Warfarer)
+          if not isPlayer and not isPawn then
+            isPlayer = true
           end
 
           if not isPlayer and not (cfg.damage_log_include_pawns and isPawn) then
             return
           end
 
+          -- Resolve target enemy name
           local targetName = "Enemy"
           pcall(function()
-            local n = chara:get_Name()
-            if n and n ~= "" then targetName = n end
+            local n = targetChara:get_Name()
+            if n and n ~= "" and n ~= "GameObject" then targetName = n end
           end)
+          if targetName == "Enemy" and targetGO then
+            pcall(function()
+              local gn = targetGO:get_Name()
+              if gn and gn ~= "" and gn ~= "GameObject" then targetName = gn end
+            end)
+          end
+          targetName = targetName:gsub("^em%d+_", ""):gsub("^ch%d+_", ""):gsub("_", " ")
 
-          local isWeak = false
-          pcall(function()
-            if tmpHitInfo.get_IsWeakPoint and tmpHitInfo:get_IsWeakPoint() then
-              isWeak = true
-            elseif tmpHitInfo["<IsWeakPoint>k__BackingField"] then
-              isWeak = true
-            end
-          end)
+          local isWeak = is_weakpoint(hitInfo)
 
           DamageLog.add(dmg, targetName, isWeak, isPawn)
+          log_once("first_dmg_logged", "Combat damage logged: " .. dmg .. " to " .. targetName .. (isWeak and " [WEAKPOINT]" or ""))
         end)
 
-        tmpHitInfo = nil
-        tmpHitCtrl = nil
+        return retval
       end
     )
   end)
+  if not ok and err then
+    log_act("init_damage_hook error: " .. tostring(err))
+  end
 end
 init_damage_hook()
 
@@ -4419,8 +4664,11 @@ init_damage_hook()
 -- Frame loop and hooks
 ------------------------------------------------------------------------------------------------
 re.on_frame(function()
-  -- Render combat damage log
-  DamageLog.render()
+  -- Render combat damage log safely
+  pcall(DamageLog.render)
+  if not damage_hook_initialized and frame % 30 == 0 then
+    init_damage_hook()
+  end
 
   -- Check Preset Cycle Hotkey
   if cfg.enabled and cfg.skill_swap_enabled and cfg.hotkey_skill_swap and #cfg.hotkey_skill_swap > 0 then
@@ -4504,21 +4752,59 @@ re.on_config_save(function() save_cfg() end)
 ------------------------------------------------------------------------------------------------
 -- REFramework UI
 ------------------------------------------------------------------------------------------------
-local function ui_check(label, key)
+local function reset_setting(key)
+  if DEFAULTS[key] ~= nil then
+    cfg[key] = deep_copy(DEFAULTS[key])
+    mark_dirty()
+    if key == "theme" then cfg.theme = deep_copy(THEME_DEFAULT) end
+  end
+end
+
+local function reset_keys(keys)
+  for _, k in ipairs(keys) do
+    if DEFAULTS[k] ~= nil then
+      cfg[k] = deep_copy(DEFAULTS[k])
+    end
+  end
+  mark_dirty()
+end
+
+local function reset_all_defaults()
+  for k, v in pairs(DEFAULTS) do
+    if k ~= "vocation_presets" then
+      cfg[k] = deep_copy(v)
+    end
+  end
+  cfg.theme = deep_copy(THEME_DEFAULT)
+  mark_dirty()
+end
+
+local function ui_reset_btn(key)
+  imgui.same_line()
+  if imgui.button("Reset##res_" .. key) then
+    reset_setting(key)
+  end
+end
+
+local function ui_check(label, key, noReset)
   local c, v = imgui.checkbox(label, cfg[key])
   if c then cfg[key] = v; mark_dirty() end
+  if not noReset then ui_reset_btn(key) end
 end
-local function ui_float(label, key, lo, hi, fmt)
+local function ui_float(label, key, lo, hi, fmt, noReset)
   local c, v = imgui.slider_float(label, cfg[key], lo, hi, fmt or "%.2f")
   if c then cfg[key] = v; mark_dirty() end
+  if not noReset then ui_reset_btn(key) end
 end
-local function ui_int(label, key, lo, hi)
+local function ui_int(label, key, lo, hi, noReset)
   local c, v = imgui.slider_int(label, cfg[key], lo, hi)
   if c then cfg[key] = math.floor(v); mark_dirty() end
+  if not noReset then ui_reset_btn(key) end
 end
-local function ui_combo(label, key, items)
+local function ui_combo(label, key, items, noReset)
   local c, v = imgui.combo(label, cfg[key], items)
   if c then cfg[key] = math.floor(v); mark_dirty() end
+  if not noReset then ui_reset_btn(key) end
 end
 local GOLD, RED = abgr(THEME_DEFAULT.accent), 0xFF7878FF
 
@@ -4536,6 +4822,13 @@ end
 
 local function draw_main_ui()
   imgui.text("Version " .. VERSION)
+  imgui.same_line()
+  if imgui.button("Restore All Mod Settings to Defaults##res_all_master") then
+    reset_all_defaults()
+  end
+  if imgui.button("Restore General Defaults##res_sec_gen") then
+    reset_keys({ "enabled", "skill_wheel", "skill_hold", "order_mode", "show_name" })
+  end
   ui_check("Enabled", "enabled")
   ui_check("Open the wheel when holding the Rearmament skill (a short tap is a normal Rearmament)", "skill_wheel")
   if cfg.skill_wheel then
@@ -4546,6 +4839,9 @@ local function draw_main_ui()
   ui_check("Show the vocation name next to the wheel", "show_name")
 
   imgui.separator()
+  if imgui.button("Restore Slow Motion Defaults##res_sec_slow") then
+    reset_keys({ "slowmo_enabled", "slowmo_scale", "dim_enabled", "dim_alpha" })
+  end
   ui_check("Slow motion while the wheel is open", "slowmo_enabled")
   ui_float("Time scale", "slowmo_scale", 0.05, 1.0)
   ui_check("Dim the background while the wheel is open", "dim_enabled")
@@ -4562,6 +4858,10 @@ local function draw_main_ui()
   end
   imgui.same_line()
   if imgui.button("Clear##hk") then cfg.hotkey = {}; mark_dirty() end
+  imgui.same_line()
+  if imgui.button("Restore Controller Defaults##res_sec_pad") then
+    reset_keys({ "pad_enabled", "pad_type", "pad_button", "pad_combo", "pad_button2", "pad_hold", "pad_stick", "pad_dead", "pad_flip_y" })
+  end
   imgui.text("Hold the hotkey, steer with the mouse, release to pick.")
   imgui.spacing()
   imgui.spacing()
@@ -4627,6 +4927,9 @@ local function draw_main_ui()
   imgui.separator()
 
   if imgui.tree_node("Look") then
+    if imgui.button("Restore Look Defaults##res_sec_look") then
+      reset_keys({ "scale", "auto_scale", "wheel_radius", "inner_radius", "center_radius", "slice_gap_deg", "hl_alpha", "game_bg", "game_icons", "hide_center_weapon", "hide_center_job", "icon_size_k", "font_file" })
+    end
     ui_float("Scale", "scale", 0.5, 2.0)
     ui_check("Scale with screen height", "auto_scale")
     ui_int("Outer radius", "wheel_radius", 120, 500)
@@ -4663,6 +4966,9 @@ local function draw_main_ui()
   end
 
   if imgui.tree_node("Mouse") then
+    if imgui.button("Restore Mouse Defaults##res_sec_mouse") then
+      reset_keys({ "select_mode", "mouse_source", "mouse_sens", "deadzone", "stick_max", "cancel_rmb", "block_input_while_open" })
+    end
     ui_combo("Selection mode", "select_mode", { "Relative (GTA style)", "Absolute cursor" })
     ui_combo("Movement source", "mouse_source", { "Auto", "via.hid delta", "via.hid position diff", "imgui position diff" })
     ui_float("Sensitivity", "mouse_sens", 0.1, 5.0)
@@ -4678,6 +4984,9 @@ local function draw_main_ui()
   --------------------------------------------------------------------------------------------------
   imgui.separator()
   if imgui.tree_node("Vocation Skillsets (6 Skill Slots) & Dark Arisen DLC") then
+    if imgui.button("Restore Skillset Settings to Defaults##res_sec_skills") then
+      reset_keys({ "skill_swap_enabled", "rearmament_stamina_consumption", "filter_guild_skills_by_weapon", "show_swap_notification", "load_guild_class_skills", "unlock_all_skills_in_presets" })
+    end
     ui_check("Enable Skillset Presets Swapping", "skill_swap_enabled")
     ui_check("Rearmament Consumes Stamina", "rearmament_stamina_consumption")
     ui_check("Filter Vocation Guild Skills by Equipped Weapon", "filter_guild_skills_by_weapon")
@@ -4713,10 +5022,10 @@ local function draw_main_ui()
     imgui.text_colored("Configure 6 Skill Slots for Each Vocation (including Dark Arisen DLC skills):", GOLD)
 
     local SLOT_LABELS = {
-      "Slot 1: Left (X / ÃƒÂ¢Ã¢â‚¬â€œÃ‚Â¡)",
-      "Slot 2: Top (Y / ÃƒÂ¢Ã¢â‚¬â€œÃ‚Â³)",
-      "Slot 3: Bottom (A / ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¢)",
-      "Slot 4: Right (B / ÃƒÂ¢Ã¢â‚¬â€Ã¢â‚¬Â¹)",
+      "Slot 1: Left (X / [] / Square)",
+      "Slot 2: Top (Y / Triangle)",
+      "Slot 3: Bottom (A / Cross)",
+      "Slot 4: Right (B / Circle)",
       "Slot 5: Left Bumper / Modifier 1",
       "Slot 6: Right Bumper / Modifier 2"
     }
@@ -4752,7 +5061,7 @@ local function draw_main_ui()
             imgui.push_id("job_" .. j .. "_preset_" .. pIdx)
             local isCurrentPreset = (pIdx == vp.currentPresetIndex)
             if isCurrentPreset and isActive then
-              imgui.text_colored("ÃƒÂ¢Ã¢â‚¬â€Ã‚Â Active Preset", 0xFF66FF66)
+              imgui.text_colored("* Active Preset", 0xFF66FF66)
             end
 
             local c_pn, n_pn = imgui.input_text("Preset Name", pr.name or ("Preset " .. pIdx))
@@ -4815,10 +5124,16 @@ local function draw_main_ui()
   --------------------------------------------------------------------------------------------------
   imgui.separator()
   if imgui.tree_node("Combat Damage Log (HUD Chat Overlay)") then
+    if imgui.button("Restore Damage Log Defaults##res_sec_dmg") then
+      reset_keys({ "damage_log_enabled", "damage_log_preview", "damage_log_corner", "damage_log_max_lines", "damage_log_duration", "damage_log_width", "damage_log_bg_opacity", "damage_log_offset_x", "damage_log_offset_y", "damage_log_player_only", "damage_log_include_pawns", "damage_log_show_weakpoint", "damage_log_show_dps" })
+    end
+    imgui.separator()
     ui_check("Enable Combat Damage Log", "damage_log_enabled")
     if cfg.damage_log_enabled then
+      ui_check("Preview Damage Log in HUD (Keeps visible on-screen for positioning)", "damage_log_preview")
       local CORNERS = { "Bottom-Left", "Top-Left", "Bottom-Right", "Top-Right" }
       ui_combo("Screen Corner", "damage_log_corner", CORNERS)
+      ui_check("Only Log Player (Warfarer) & Pawn Damage", "damage_log_player_only")
       ui_check("Include Pawn Damage", "damage_log_include_pawns")
       ui_check("Highlight Weakpoint / Critical Hits", "damage_log_show_weakpoint")
       ui_check("Show Encounter DPS & Total Damage Header", "damage_log_show_dps")
@@ -4835,7 +5150,7 @@ local function draw_main_ui()
         DamageLog.add(210, "Harpy", false, true)
       end
       imgui.same_line()
-      imgui.text_colored("(Previews the chatbox at the configured corner)", 0xFFAAAAAA)
+      imgui.text_colored("(Sends 3 live test damage entries to test fading)", 0xFFAAAAAA)
     end
     imgui.tree_pop()
   end

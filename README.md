@@ -32,9 +32,9 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 - **Dark Arisen DLC Native Compatibility:** Comprehensive support for all new Dark Arisen expansion abilities, including CS13, CS14, CS15 skill tiers, and Obelisk abilities across all vocations (Fighter, Archer, Mage, Thief, Warrior, Sorcerer, Mystic Spearhand, Magick Archer, Trickster, and Warfarer) via dynamic reflection.
 
 ### 4. Combat Damage Log UI (HUD Chatbox Style)
-- **Real-time Combat Log:** Displays incoming and outgoing damage numbers in an MMO/RPG-style on-screen chat log.
-- **Custom Screen Corner:** Position the log in any corner of the screen (**Bottom-Left**, **Top-Left**, **Bottom-Right**, or **Top-Right**) with configurable margins and width.
-- **Combat Stats & DPS:** Real-time combat DPS calculations, encounter total damage, and smooth alpha fadeout for older hits.
+- **Real-time Combat Log:** Displays damage numbers in an RPG-style on-screen chat overlay whenever you or your pawns damage enemies.
+- **Custom Screen Corner & Live Preview:** Position the log in any corner of the screen (**Bottom-Left**, **Top-Left**, **Bottom-Right**, or **Top-Right**) with configurable margins, width, and background opacity. Includes a **Live HUD Preview** toggle to easily position the box on your screen.
+- **Combat Stats & DPS:** Real-time encounter DPS calculations, encounter total damage, and smooth alpha fadeout for older hits.
 - **Hit Highlights:** Distinct color coding for standard hits, high-damage hits, Pawn attacks, and weakpoint/critical strikes.
 
 ### 5. Loadout Presets & Combat Cycling
@@ -47,12 +47,17 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 - **Dual-Button Combos & Hold Timing:** Bind wheel triggers to single buttons or multi-button combinations (e.g., `LB + RB`, `L1 + R1`), with customizable hold thresholds.
 - **In-Game Diagnostic Overlay:** Real-time controller button monitor and stick axis visualizer built right into the REFramework menu.
 
+### 7. Restore Defaults for Each Setting & Category
+- **Per-Setting Reset:** Every slider, combo, and toggle in the REFramework menu includes an individual `[Reset]` button to instantly restore just that setting to factory default.
+- **Section Restore:** Dedicated buttons for every section (*General*, *Slow Motion*, *Controller*, *Look*, *Mouse*, *Skillsets*, *Damage Log*) to reset categories with one click.
+- **Master Reset:** A top-level *Restore All Mod Settings to Defaults* button to revert the entire mod back to default.
+
 ---
 
 ## 📦 Installation
 
 ### Option A: Fluffy Mod Manager (Recommended)
-1. Download the latest release package: `Denarmo's Warfarer Revamped v1.0.1.zip` from the [Releases](https://github.com/) tab or `build/` folder.
+1. Download the latest release package: `Denarmo's Warfarer Revamped v1.0.3.zip` from the [Releases](https://github.com/) tab or `build/` folder.
 2. Drop the `.zip` file directly into your Fluffy Mod Manager mod directory:
    ```
    <Fluffy Mod Manager Path>\Games\DragonsDogma2\Mods\
@@ -102,7 +107,7 @@ Denarmo's Warfarer Revamped/
 ├── .github/                     # Issue templates and workflows
 ├── .githooks/                   # Git automation hooks (auto-versioning)
 ├── build/                       # Packaged distribution archives (.zip)
-│   └── Denarmo's Warfarer Revamped v1.0.1.zip
+│   └── Denarmo's Warfarer Revamped v1.0.3.zip
 ├── reframework/
 │   ├── autorun/
 │   │   └── WarfarerRevamped.lua # Unified Lua engine

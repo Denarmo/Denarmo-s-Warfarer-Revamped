@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.8", 46
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.9", 47
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -112,15 +112,19 @@ local DEFAULTS = {
   load_guild_class_skills = true,
   unlock_all_skills_in_presets = true,
   free_rearmament_slot = true,
-  -- Combat Damage Log UI
+  -- Combat Damage Log UI (mod 148 base)
   damage_log_enabled = true,
+  damage_floating_numbers = true,
+  damage_log_show_skill_name = true,
+  damage_log_show_multiplier = true,
+  damage_log_show_reaction = true,
   damage_log_preview = false,
   damage_log_corner = 1, -- 1: Bottom-Left, 2: Top-Left, 3: Bottom-Right, 4: Top-Right
   damage_log_max_lines = 8,
   damage_log_duration = 5.0,
   damage_log_offset_x = 35,
   damage_log_offset_y = 60,
-  damage_log_width = 380,
+  damage_log_width = 420,
   damage_log_bg_opacity = 0.70,
   damage_log_player_only = true,
   damage_log_include_pawns = true,
@@ -4426,6 +4430,54 @@ local function get_character_from_hit_ctrl(ctrl)
   return ch
 end
 
+local floatingNumbers = {}
+local mainplayer = nil
+local mainplayerGO = nil
+
+local function get_character_pos(char)
+  if not char then return nil end
+  local ok, pos = pcall(function()
+    local go = char:get_GameObject()
+    if not go then return nil end
+    local transform = go:get_Transform()
+    if not transform then return nil end
+    local joint = transform:getJointByName("Head_0")
+    local ground_joint = transform:getJointByName("root")
+    if joint == nil then
+      return ground_joint and ground_joint:get_Position() or nil
+    end
+    if ground_joint and (joint:get_Position().y - ground_joint:get_Position().y > 2.0) then
+      return ground_joint:get_Position()
+    end
+    return joint:get_Position()
+  end)
+  return ok and pos or nil
+end
+
+local function refresh_player_caching()
+  pcall(function()
+    local player_man = sdk.get_managed_singleton("app.CharacterManager")
+    if player_man then
+      mainplayer = player_man:get_ManualPlayer()
+      mainplayerGO = nil
+      if mainplayer ~= nil then
+        mainplayerGO = mainplayer:get_GameObject()
+      end
+    end
+  end)
+end
+
+pcall(function()
+  local gm = sdk.find_type_definition("app.GuiManager")
+  if gm then
+    local mChange = gm:get_method("OnChangeSceneType")
+    if mChange then
+      sdk.hook(mChange, nil, refresh_player_caching)
+    end
+  end
+end)
+refresh_player_caching()
+
 local DamageLog = {
   entries = {},
   total_damage = 0,
@@ -4433,6 +4485,7 @@ local DamageLog = {
   combat_start_time = 0,
   last_hit_time = 0,
   d2d_active = false,
+  d2d_last_rendered = 0,
   last_rendered_frame = 0,
 }
 
@@ -4448,7 +4501,7 @@ local function to_argb(a, r, g, b)
   return (alpha << 24) | (red << 16) | (green << 8) | blue
 end
 
-function DamageLog.add(dmg, target, isWeakPoint, isPawn)
+function DamageLog.add(dmg, target, isWeakPoint, isPawn, skillName, dmgRate)
   local now = os.clock()
   if now - DamageLog.last_hit_time > 8.0 then
     DamageLog.combat_start_time = now
@@ -4463,11 +4516,61 @@ function DamageLog.add(dmg, target, isWeakPoint, isPawn)
     target = target or "Enemy",
     isWeakPoint = isWeakPoint or false,
     isPawn = isPawn or false,
+    skillName = skillName,
+    dmgRate = dmgRate,
     time = now,
   })
 
   while #DamageLog.entries > 30 do
     table.remove(DamageLog.entries, 1)
+  end
+end
+
+function DamageLog.add_reaction(target, reaction)
+  local now = os.clock()
+  table.insert(DamageLog.entries, {
+    damage = 0,
+    target = target or "Enemy",
+    isWeakPoint = false,
+    isPawn = false,
+    reaction = reaction,
+    time = now,
+  })
+  while #DamageLog.entries > 30 do
+    table.remove(DamageLog.entries, 1)
+  end
+end
+
+function DamageLog.add_floating_number(msg, pos, color, isBig)
+  if not pos then return end
+  local fn = {
+    msg = msg,
+    pos = Vector3f.new(pos.x + (math.random(7) - 4) * 0.15, pos.y + (math.random(7) - 4) * 0.15, pos.z),
+    color = color or 0xFFEEEEEE,
+    life = 90,
+    isBig = isBig or false,
+  }
+  table.insert(floatingNumbers, fn)
+  while #floatingNumbers > 40 do
+    table.remove(floatingNumbers, 1)
+  end
+end
+
+function DamageLog.render_floating()
+  if not cfg.damage_floating_numbers or #floatingNumbers == 0 then return end
+  local i = 1
+  while i <= #floatingNumbers do
+    local fn = floatingNumbers[i]
+    pcall(draw.world_text, fn.msg, fn.pos, fn.color)
+    fn.life = fn.life - 1
+    fn.pos.y = fn.pos.y + 0.018
+    local alpha = math.floor(clamp((fn.life / 90) * 255, 0, 255))
+    fn.color = (alpha << 24) | (fn.color & 0x00FFFFFF)
+    if fn.life <= 0 then
+      table.remove(floatingNumbers, i)
+    else
+      i = i + 1
+    end
   end
 end
 
@@ -4490,10 +4593,11 @@ function DamageLog.render_d2d()
 
   -- Preview mode: display sample lines if no active hits
   if cfg.damage_log_preview and #active == 0 then
-    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, time = now })
-    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, time = now })
+    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, skillName = "Blink Strike", dmgRate = 1.0, time = now })
+    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, skillName = "Arc of Might", dmgRate = 2.2, time = now })
+    table.insert(active, { damage = 0, target = "Cyclops", reaction = "Blown", time = now })
     if cfg.damage_log_include_pawns then
-      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, time = now })
+      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, skillName = "High Levin", dmgRate = 1.0, time = now })
     end
   end
 
@@ -4525,7 +4629,7 @@ function DamageLog.render_d2d()
     bounds_w = safe_w
   end
 
-  local w = cfg.damage_log_width or 380
+  local w = cfg.damage_log_width or 420
   local lineH = 22
   local headerH = 26
   local pad = 8
@@ -4605,20 +4709,32 @@ function DamageLog.render_d2d()
       end
       local aByte = math.floor(alphaK * 255)
       if aByte > 0 then
-        local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-        local dmgStr = format_number(entry.damage)
-        if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-          dmgStr = dmgStr .. " [WEAKPOINT!]"
-        end
-        local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
-
+        local lineText = ""
         local lineCol = to_argb(aByte, 255, 255, 255)
-        if entry.isWeakPoint then
-          lineCol = to_argb(aByte, 255, 69, 0) -- Fire OrangeRed
-        elseif entry.damage >= 1000 then
-          lineCol = to_argb(aByte, 255, 215, 0) -- Radiant Gold
-        elseif entry.isPawn then
-          lineCol = to_argb(aByte, 160, 208, 255) -- Soft Cyan
+        if entry.reaction then
+          lineText = string.format("%s: [%s]", entry.target, entry.reaction)
+          lineCol = to_argb(aByte, 255, 160, 64)
+        else
+          local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+          if entry.skillName and cfg.damage_log_show_skill_name then
+            tag = tag .. " [" .. entry.skillName .. "]"
+          end
+          local dmgStr = format_number(entry.damage)
+          if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
+            dmgStr = dmgStr .. " (x" .. string.format("%.2f", entry.dmgRate) .. ")"
+          end
+          if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+            dmgStr = dmgStr .. " [WEAKPOINT!]"
+          end
+          lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+
+          if entry.isWeakPoint then
+            lineCol = to_argb(aByte, 255, 69, 0) -- Fire OrangeRed
+          elseif entry.damage >= 1000 then
+            lineCol = to_argb(aByte, 255, 215, 0) -- Radiant Gold
+          elseif entry.isPawn then
+            lineCol = to_argb(aByte, 160, 208, 255) -- Soft Cyan
+          end
         end
 
         d2d.text(d2d_font_line, lineText, x + 10, lineY, lineCol)
@@ -4654,10 +4770,11 @@ function DamageLog.render_imgui()
   end
 
   if cfg.damage_log_preview and #active == 0 then
-    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, time = now })
-    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, time = now })
+    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, skillName = "Blink Strike", dmgRate = 1.0, time = now })
+    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, skillName = "Arc of Might", dmgRate = 2.2, time = now })
+    table.insert(active, { damage = 0, target = "Cyclops", reaction = "Blown", time = now })
     if cfg.damage_log_include_pawns then
-      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, time = now })
+      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, skillName = "High Levin", dmgRate = 1.0, time = now })
     end
   end
 
@@ -4677,7 +4794,7 @@ function DamageLog.render_imgui()
     bounds_w = safe_w
   end
 
-  local w = cfg.damage_log_width or 380
+  local w = cfg.damage_log_width or 420
   local lineH = 22
   local headerH = 26
   local pad = 8
@@ -4742,16 +4859,33 @@ function DamageLog.render_imgui()
         if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
         local aByte = math.floor(alphaK * 255)
         if aByte > 0 then
-          local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-          local dmgStr = format_number(entry.damage)
-          if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-            dmgStr = dmgStr .. " [WEAKPOINT!]"
-          end
-          local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+          local lineText = ""
           local lineCol = (aByte << 24) | 0x00FFFFFF
-          if entry.isWeakPoint then lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
-          elseif entry.damage >= 1000 then lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
-          elseif entry.isPawn then lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160 end
+          if entry.reaction then
+            lineText = string.format("%s: [%s]", entry.target, entry.reaction)
+            lineCol = (aByte << 24) | (64 << 16) | (160 << 8) | 255
+          else
+            local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+            if entry.skillName and cfg.damage_log_show_skill_name then
+              tag = tag .. " [" .. entry.skillName .. "]"
+            end
+            local dmgStr = format_number(entry.damage)
+            if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
+              dmgStr = dmgStr .. " (x" .. string.format("%.2f", entry.dmgRate) .. ")"
+            end
+            if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+              dmgStr = dmgStr .. " [WEAKPOINT!]"
+            end
+            lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+
+            if entry.isWeakPoint then
+              lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
+            elseif entry.damage >= 1000 then
+              lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
+            elseif entry.isPawn then
+              lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160
+            end
+          end
 
           dl:add_text(Vector2f.new(x + 10, lineY), lineCol, lineText)
         end
@@ -4770,16 +4904,33 @@ function DamageLog.render_imgui()
       if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
       local aByte = math.floor(alphaK * 255)
       if aByte > 0 then
-        local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-        local dmgStr = format_number(entry.damage)
-        if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-          dmgStr = dmgStr .. " [WEAKPOINT!]"
-        end
-        local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+        local lineText = ""
         local lineCol = (aByte << 24) | 0x00FFFFFF
-        if entry.isWeakPoint then lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
-        elseif entry.damage >= 1000 then lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
-        elseif entry.isPawn then lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160 end
+        if entry.reaction then
+          lineText = string.format("%s: [%s]", entry.target, entry.reaction)
+          lineCol = (aByte << 24) | (64 << 16) | (160 << 8) | 255
+        else
+          local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+          if entry.skillName and cfg.damage_log_show_skill_name then
+            tag = tag .. " [" .. entry.skillName .. "]"
+          end
+          local dmgStr = format_number(entry.damage)
+          if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
+            dmgStr = dmgStr .. " (x" .. string.format("%.2f", entry.dmgRate) .. ")"
+          end
+          if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+            dmgStr = dmgStr .. " [WEAKPOINT!]"
+          end
+          lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+
+          if entry.isWeakPoint then
+            lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
+          elseif entry.damage >= 1000 then
+            lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
+          elseif entry.isPawn then
+            lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160
+          end
+        end
         pcall(draw.text, lineText, x + 10, lineY, lineCol)
       end
     end
@@ -4790,6 +4941,7 @@ end
 
 -- Backward compatibility alias
 function DamageLog.render()
+  pcall(DamageLog.render_floating)
   if not cfg.damage_log_enabled then return end
   local now = os.clock()
   if d2d_available and DamageLog.d2d_active and (now - (DamageLog.d2d_last_rendered or 0) < 0.2) then
@@ -4824,8 +4976,11 @@ local function setup_d2d()
 end
 pcall(setup_d2d)
 
--- Hook into game damage calculation via app.HitController:updateDamage
+-- Hook into game damage calculation via app.HitController:updateDamage (based on Nexus mod 148: Damage Number by xyzkljl1)
+local tmpUpdateDamageHitController = nil
+local tmpUpdateDamageDamageInfo = nil
 local damage_hook_initialized = false
+
 local function init_damage_hook()
   if damage_hook_initialized then return end
   local ok, err = pcall(function()
@@ -4835,105 +4990,174 @@ local function init_damage_hook()
     if not mUpdate then return end
 
     damage_hook_initialized = true
-    log_act("Combat Damage hook initialized on app.HitController:updateDamage")
-
-    local curHitInfo = nil
-    local curHitCtrl = nil
-    local preDamage = 0
+    log_act("Combat Damage hook initialized on app.HitController:updateDamage (based on Nexus mod 148)")
 
     sdk.hook(mUpdate,
       function(args)
-        if not cfg.damage_log_enabled then
-          curHitInfo = nil
-          curHitCtrl = nil
-          preDamage = 0
-          return
-        end
-
-        curHitCtrl = sdk.to_managed_object(args[2])
-        curHitInfo = sdk.to_managed_object(args[3])
-        if not curHitCtrl or not curHitInfo then return end
-
-        preDamage = extract_damage(curHitInfo)
+        if not cfg.damage_log_enabled and not cfg.damage_floating_numbers then return end
+        tmpUpdateDamageHitController = sdk.to_managed_object(args[2])
+        tmpUpdateDamageDamageInfo = sdk.to_managed_object(args[3])
       end,
       function(retval)
-        if not cfg.damage_log_enabled or not curHitInfo or not curHitCtrl then
-          curHitInfo = nil
-          curHitCtrl = nil
-          preDamage = 0
+        if not tmpUpdateDamageHitController or not tmpUpdateDamageDamageInfo then
+          tmpUpdateDamageHitController = nil
+          tmpUpdateDamageDamageInfo = nil
           return retval
         end
 
-        local hitCtrl = curHitCtrl
-        local hitInfo = curHitInfo
-        local preDmg = preDamage
-        curHitInfo = nil
-        curHitCtrl = nil
-        preDamage = 0
+        local hitCtrl = tmpUpdateDamageHitController
+        local dmgInfo = tmpUpdateDamageDamageInfo
+        tmpUpdateDamageHitController = nil
+        tmpUpdateDamageDamageInfo = nil
 
         pcall(function()
-          local targetChara = get_character_from_hit_ctrl(hitCtrl)
-          if not targetChara or is_player_entity(targetChara) then return end
+          -- Character retrieval (mod 148: CachedCharacter, fallback to DamageHitController)
+          local character = hitCtrl:get_CachedCharacter()
+          if not character then
+            local dhc = dmgInfo["<DamageHitController>k__BackingField"]
+            if dhc then character = dhc:get_CachedCharacter() end
+          end
+          if not character then return end
 
-          local dmg = extract_damage(hitInfo)
-          if dmg <= 0 and preDmg > 0 then
-            dmg = preDmg
+          -- Extract damage value (direct field from mod 148 with sum fallback)
+          local dmg = dmgInfo.Damage or 0
+          if dmg <= 0 then
+            local compSum = (dmgInfo.SlashDamage or 0) + (dmgInfo.BlowDamage or 0) + (dmgInfo.ShootDamage or 0) + (dmgInfo.MagicDamage or 0) + (dmgInfo.EnchantDamage or 0) + (dmgInfo.NonMagicElementDamage or 0) + (dmgInfo.FixedDamage or 0)
+            if compSum > 0 then dmg = compSum end
           end
           if dmg <= 0 and retval then
             local rNum = tonumber(sdk.to_int64(retval))
-            if rNum and rNum > 0 and rNum < 10000000 then
-              dmg = rNum
-            end
+            if rNum and rNum > 0 and rNum < 10000000 then dmg = rNum end
           end
           if dmg <= 0 then return end
 
-          -- Player and pawn references
-          local isPlayer = false
-          local isPawn = false
+          -- AttackUserData & DOT detection (mod 148)
+          local AttackUserData = dmgInfo["<AttackUserData>k__BackingField"]
+          local isDOT = (AttackUserData == nil)
 
-          local atkObj = nil
-          pcall(function() atkObj = hitInfo:get_AttackOwnerObject() or hitInfo:get_field("AttackOwnerObject") end)
-          local atkChara = nil
-          pcall(function() atkChara = hitInfo:get_AttackOwnerCharacter() or hitInfo:get_field("AttackOwnerCharacter") end)
-
-          if is_player_entity(atkChara) or is_player_entity(atkObj) then
-            isPlayer = true
-          elseif is_pawn_entity(atkChara) or is_pawn_entity(atkObj) then
-            isPawn = true
-          else
-            -- Attribute to player
-            isPlayer = true
+          -- Attacker resolution (mod 148: owner_gameobj == mainplayerGO)
+          local owner_gameobj = dmgInfo["<AttackOwnerObject>k__BackingField"]
+          local isPlayerAttackHit = false
+          if mainplayerGO and owner_gameobj == mainplayerGO then
+            isPlayerAttackHit = true
+          elseif P.go and owner_gameobj == P.go then
+            isPlayerAttackHit = true
+          elseif is_player_entity(owner_gameobj) then
+            isPlayerAttackHit = true
           end
 
-          if not isPlayer and not (cfg.damage_log_include_pawns and isPawn) then
+          local isPlayerTakenHit = (mainplayer ~= nil and mainplayer == character) or is_player_entity(character)
+
+          -- Pawn detection
+          local isPawn = false
+          local ahc = dmgInfo["<AttackHitController>k__BackingField"]
+          local atkChara = ahc and ahc:get_CachedCharacter()
+          if atkChara and (is_pawn_entity(atkChara) or (atkChara.isPawn and atkChara:isPawn())) then
+            isPawn = true
+          end
+
+          -- If player took hit, do not log as outgoing damage
+          if isPlayerTakenHit then return end
+
+          -- Filter: if player only, ignore non-player and non-pawn hits
+          if cfg.damage_log_player_only and not isPlayerAttackHit and not (cfg.damage_log_include_pawns and isPawn) then
             return
           end
 
-          -- Resolve target enemy name
+          -- Target character name resolution
           local targetName = "Enemy"
-          pcall(function()
-            local n = targetChara:get_Name()
-            if n and n ~= "" and n ~= "GameObject" then targetName = n end
-          end)
-          local targetGO = mcall(targetChara, "get_GameObject()")
-          if targetName == "Enemy" and targetGO then
+          local go = character:get_GameObject()
+          if go then
+            local gn = go:get_Name()
+            if gn and gn ~= "" and gn ~= "GameObject" then
+              targetName = gn:gsub("^em%d+_", ""):gsub("^ch%d+_", ""):gsub("_", " ")
+            end
+          end
+
+          -- Damage Rate & Weakpoint (mod 148)
+          local dmgRate = dmgInfo.DamageRate or 1.0
+          local isWeak = (dmgRate > 1.25) or (dmgInfo.RegionNo and dmgInfo.RegionNo > 0)
+
+          -- Skill / Action Name from AttackUserData (mod 148)
+          local skillName = nil
+          if AttackUserData then
             pcall(function()
-              local gn = targetGO:get_Name()
-              if gn and gn ~= "" and gn ~= "GameObject" then targetName = gn end
+              local n = AttackUserData:get_Name()
+              if n and n ~= "" and n ~= "None" then
+                skillName = n:gsub("^CustomSkill_", ""):gsub("^NormalAttack_", ""):gsub("_", " ")
+              end
             end)
           end
-          targetName = targetName:gsub("^em%d+_", ""):gsub("^ch%d+_", ""):gsub("_", " ")
 
-          local isWeak = is_weakpoint(hitInfo)
+          -- Add entry to HUD Combat Log
+          DamageLog.add(dmg, targetName, isWeak, isPawn, skillName, dmgRate)
+          log_once("first_dmg_logged", "Combat damage logged: " .. dmg .. " to " .. targetName .. (isWeak and " [WEAKPOINT]" or "") .. (skillName and (" [" .. skillName .. "]") or ""))
 
-          DamageLog.add(dmg, targetName, isWeak, isPawn)
-          log_once("first_dmg_logged", "Combat damage logged: " .. dmg .. " to " .. targetName .. (isWeak and " [WEAKPOINT]" or ""))
+          -- Add floating damage number (mod 148 draw.world_text)
+          if cfg.damage_floating_numbers then
+            local hitPos = dmgInfo:get_Position()
+            if (hitPos.x == 0 and hitPos.y == 0 and hitPos.z == 0) and character ~= nil then
+              local cpos = get_character_pos(character)
+              if cpos then hitPos = cpos end
+            end
+            local numText = format_number(dmg)
+            if isWeak and cfg.damage_log_show_weakpoint then
+              numText = numText .. "!"
+            end
+            local numCol = 0xFFEEEEEE
+            if isWeak then
+              numCol = 0xFF2050FF -- Fire OrangeRed
+            elseif dmg >= 1000 then
+              numCol = 0xFF00D7FF -- Radiant Gold
+            elseif isPawn then
+              numCol = 0xFFFFD0A0 -- Soft Cyan
+            end
+            DamageLog.add_floating_number(numText, hitPos, numCol, dmg >= 1000)
+          end
         end)
 
         return retval
       end
     )
+
+    -- Hook Damage Reactions (from mod 148: selectDamageActionShrink/Hitdown/Blown/LargeCharaDown)
+    local hook_reaction = function(method_name, reaction_name)
+      local cdr = sdk.find_type_definition("app.CommonDamageReaction")
+      if not cdr then return end
+      local m = cdr:get_method(method_name)
+      if not m then return end
+      sdk.hook(m, function(args)
+        if not cfg.damage_log_show_reaction then return end
+        local this = sdk.to_managed_object(args[2])
+        if not this then return end
+        pcall(function()
+          local chara = this["<Chara>k__BackingField"]
+          if not chara or is_player_entity(chara) then return end
+          local targetName = "Enemy"
+          local go = chara:get_GameObject()
+          if go then
+            local gn = go:get_Name()
+            if gn and gn ~= "" and gn ~= "GameObject" then
+              targetName = gn:gsub("^em%d+_", ""):gsub("^ch%d+_", ""):gsub("_", " ")
+            end
+          end
+          DamageLog.add_reaction(targetName, reaction_name)
+          if cfg.damage_floating_numbers then
+            local cpos = get_character_pos(chara)
+            if cpos then
+              DamageLog.add_floating_number("[" .. reaction_name .. "]", cpos, 0xFFFFA040, true)
+            end
+          end
+        end)
+      end, nil)
+    end
+
+    hook_reaction("selectDamageActionShrink", "Shrink")
+    hook_reaction("selectDamageActionHitdown", "Hitdown")
+    hook_reaction("selectDamageActionBlown", "Blown")
+    hook_reaction("selectDamageActionLargeCharaDown", "Down")
   end)
+
   if not ok and err then
     log_act("init_damage_hook error: " .. tostring(err))
   end
@@ -5559,21 +5783,33 @@ local function draw_main_ui()
   -- Combat Damage Log UI (HUD Chat Overlay)
   --------------------------------------------------------------------------------------------------
   imgui.separator()
-  if imgui.tree_node("Combat Damage Log (HUD Chat Overlay)") then
+  if imgui.tree_node("Combat Damage Log (HUD Chat Overlay & Floating Numbers)") then
     if imgui.button("Restore Damage Log Defaults##res_sec_dmg") then
-      reset_keys({ "damage_log_enabled", "damage_log_preview", "damage_log_corner", "damage_log_max_lines", "damage_log_duration", "damage_log_width", "damage_log_bg_opacity", "damage_log_offset_x", "damage_log_offset_y", "damage_log_player_only", "damage_log_include_pawns", "damage_log_show_weakpoint", "damage_log_show_dps", "damage_log_ultrawide_constrain" })
+      reset_keys({ "damage_log_enabled", "damage_floating_numbers", "damage_log_show_skill_name", "damage_log_show_multiplier", "damage_log_show_reaction", "damage_log_preview", "damage_log_corner", "damage_log_max_lines", "damage_log_duration", "damage_log_width", "damage_log_bg_opacity", "damage_log_offset_x", "damage_log_offset_y", "damage_log_player_only", "damage_log_include_pawns", "damage_log_show_weakpoint", "damage_log_show_dps", "damage_log_ultrawide_constrain" })
     end
     imgui.separator()
-    ui_check("Enable Combat Damage Log", "damage_log_enabled")
+    ui_check("Enable Combat Damage Log (HUD Chat Overlay)", "damage_log_enabled")
+    ui_check("Enable Floating 3D Damage Numbers (Over Enemy)", "damage_floating_numbers")
+    imgui.text_colored("(Draws floating damage numbers directly over targets in 3D world space)", 0xFFAAAAAA)
+    imgui.separator()
+
+    if cfg.damage_log_enabled or cfg.damage_floating_numbers then
+      ui_check("Only Log Player (Warfarer) & Pawn Damage", "damage_log_player_only")
+      ui_check("Include Pawn Damage", "damage_log_include_pawns")
+      ui_check("Highlight Weakpoint / Critical Hits", "damage_log_show_weakpoint")
+      ui_check("Show Skill / Action Name in Log", "damage_log_show_skill_name")
+      ui_check("Show Damage Multiplier (e.g. x1.50)", "damage_log_show_multiplier")
+      ui_check("Show Knockdown Reactions (Shrink, Blown, Down)", "damage_log_show_reaction")
+    end
+
     if cfg.damage_log_enabled then
+      imgui.separator()
+      imgui.text_colored("--- HUD Log Overlay Settings ---", GOLD)
       ui_check("Preview Damage Log in HUD (Keeps visible on-screen for positioning)", "damage_log_preview")
       local CORNERS = { "Bottom-Left", "Top-Left", "Bottom-Right", "Top-Right" }
       ui_combo("Screen Corner", "damage_log_corner", CORNERS)
       ui_check("Constrain to 16:9 HUD Area (Ultrawide displays)", "damage_log_ultrawide_constrain")
       imgui.text_colored("(Aligns to centered 16:9 HUD area on 21:9 / 32:9 monitors rather than outer screen edge)", 0xFFAAAAAA)
-      ui_check("Only Log Player (Warfarer) & Pawn Damage", "damage_log_player_only")
-      ui_check("Include Pawn Damage", "damage_log_include_pawns")
-      ui_check("Highlight Weakpoint / Critical Hits", "damage_log_show_weakpoint")
       ui_check("Show Encounter DPS & Total Damage Header", "damage_log_show_dps")
       ui_int("Max Displayed Lines", "damage_log_max_lines", 3, 20)
       ui_float("Message Duration (seconds)", "damage_log_duration", 1.0, 15.0)
@@ -5581,14 +5817,18 @@ local function draw_main_ui()
       ui_float("Background Opacity", "damage_log_bg_opacity", 0.0, 1.0)
       ui_int("Screen Margin X (px)", "damage_log_offset_x", 0, 500)
       ui_int("Screen Margin Y (px)", "damage_log_offset_y", 0, 500)
+    end
 
+    if cfg.damage_log_enabled or cfg.damage_floating_numbers then
+      imgui.separator()
       if imgui.button("Send Test Log Entries##test_dmg") then
-        DamageLog.add(380, "Goblin", false, false)
-        DamageLog.add(1450, "Cyclops", true, false)
-        DamageLog.add(210, "Harpy", false, true)
+        DamageLog.add(380, "Goblin", false, false, "Slash", 1.0)
+        DamageLog.add(1450, "Cyclops", true, false, "Heavensward", 1.5)
+        DamageLog.add(210, "Harpy", false, true, "Shot", 1.0)
+        DamageLog.add_reaction("Cyclops", "Large Down")
       end
       imgui.same_line()
-      imgui.text_colored("(Sends 3 live test damage entries to test fading)", 0xFFAAAAAA)
+      imgui.text_colored("(Sends live test damage and reaction entries)", 0xFFAAAAAA)
     end
     imgui.tree_pop()
   end

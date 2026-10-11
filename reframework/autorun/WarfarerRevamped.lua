@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.1.0", 47
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.1.1", 47
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -1623,6 +1623,7 @@ cfg.font_file = cfg.font_file == "default" and "" or (cfg.font_file:match("([^/\
 local Fonts = { list = {}, sizes = {}, loaded_for = cfg.font_file, found = nil, ref = nil }
 for sz = 9, 24 do Fonts.sizes[#Fonts.sizes + 1] = sz end           -- every pixel size from 9 to 24 (the centre text shrinks to fit), then coarser
 for sz = 26, 40, 2 do Fonts.sizes[#Fonts.sizes + 1] = sz end
+for sz = 44, 72, 4 do Fonts.sizes[#Fonts.sizes + 1] = sz end
 Fonts.CHOICES = {
   { "Palatino Linotype", "pala.ttf", "Palatino Linotype - included with the mod (pala.ttf)" }, { "Georgia", "georgia.ttf" }, { "Times New Roman", "times.ttf" }, { "Constantia", "constan.ttf" },
   { "Cambria", "cambria.ttc" }, { "Book Antiqua", "BKANT.TTF" }, { "Garamond", "GARA.TTF" }, { "Bookman Old Style", "BOOKOS.TTF" },
@@ -4478,74 +4479,9 @@ pcall(function()
 end)
 refresh_player_caching()
 
-local dmg_font = nil
-local dmg_big_font = nil
-local dmg_log_font = nil
-local fonts_initialized = false
-
-local function ensure_fonts()
-  if fonts_initialized and dmg_font and dmg_log_font then return end
-  fonts_initialized = true
-
-  pcall(function()
-    dmg_font = imgui.load_font("times.ttf", 60)
-  end)
-  if not dmg_font then
-    pcall(function() dmg_font = imgui.load_font("arial.ttf", 60) end)
-  end
-
-  pcall(function()
-    dmg_big_font = imgui.load_font("times.ttf", 85)
-  end)
-  if not dmg_big_font then
-    pcall(function() dmg_big_font = imgui.load_font("arial.ttf", 85) end)
-  end
-
-  pcall(function()
-    dmg_log_font = imgui.load_font("msgothic.ttc", 16, {
-      0x0020, 0x00FF, -- Basic Latin + Latin Supplement
-      0x2000, 0x206F, -- General Punctuation
-      0x3000, 0x30FF, -- CJK Symbols and Punctuations, Hiragana, Katakana
-      0x4E00, 0x9FAF, -- CJK Ideograms
-      0,
-    })
-  end)
-  if not dmg_log_font then
-    pcall(function() dmg_log_font = imgui.load_font("segoeui.ttf", 16) end)
-  end
-  if not dmg_log_font then
-    pcall(function() dmg_log_font = imgui.load_font("arial.ttf", 16) end)
-  end
-end
-pcall(ensure_fonts)
-
-local JP_SKILL_NAMES = {
-  ["ãƒ€ãƒƒã‚·ãƒ¥ å¼±æ”»æ’ƒ"] = "Sprint Light Attack",
-  ["ãƒ€ãƒƒã‚·ãƒ¥ å¼·æ”»æ’ƒ"] = "Sprint Heavy Attack",
-  ["å¼±æ”»æ’ƒ"] = "Light Attack",
-  ["å¼·æ”»æ’ƒ"] = "Heavy Attack",
-  ["ã‚¸ãƒ£ãƒ³ãƒ— å¼±æ”»æ’ƒ"] = "Jump Light Attack",
-  ["ã‚¸ãƒ£ãƒ³ãƒ— å¼·æ”»æ’ƒ"] = "Jump Heavy Attack",
-  ["ã—ãŒã¿ã¤ã å¼±æ”»æ’ƒ"] = "Cling Light Attack",
-  ["ã—ãŒã¿ã¤ã å¼·æ”»æ’ƒ"] = "Cling Heavy Attack",
-  ["è½ä¸‹ æ”»æ’ƒ"] = "Plunging Attack",
-  ["å—ã‘èº«"] = "Breakfall",
-  ["é€šå¸¸æ”»æ’ƒ"] = "Normal Attack",
-  ["çªã"] = "Thrust",
-  ["æ‰•ã„"] = "Sweep",
-  ["å©ãã¤ã‘"] = "Slam",
-  ["æ–¬ã‚Šä¸Šã’"] = "Uppercut",
-  ["å…œå‰²ã‚Š"] = "Helm Splitter",
-}
-
-local function clean_skill_name(n)
-  if not n then return "" end
-  if JP_SKILL_NAMES[n] then return JP_SKILL_NAMES[n] end
-  local cleaned = n:gsub("^CustomSkill_", ""):gsub("^NormalAttack_", ""):gsub("^Action_", ""):gsub("_", " ")
-  if JP_SKILL_NAMES[cleaned] then return JP_SKILL_NAMES[cleaned] end
-  return cleaned
-end
-
+--------------------------------------------------------------------------------------------------
+-- Combat Damage Log & Floating Numbers (Driven by the Weapon Menu UI Engine)
+--------------------------------------------------------------------------------------------------
 local damageNumbers = {}
 
 local DamageLog = {
@@ -4555,6 +4491,29 @@ local DamageLog = {
   combat_start_time = 0,
   last_hit_time = 0,
 }
+
+local function clean_skill_name(n)
+  if not n then return "" end
+  local s = tostring(n)
+  if s:find("å¼±æ”»æ’ƒ") then
+    if s:find("ãƒ€ãƒƒã‚·ãƒ¥") then return "Sprint Light Attack" end
+    if s:find("ã‚¸ãƒ£ãƒ³ãƒ—") then return "Jump Light Attack" end
+    if s:find("ã—ãŒã¿ã¤ã") then return "Cling Light Attack" end
+    return "Light Attack"
+  elseif s:find("å¼·æ”»æ’ƒ") then
+    if s:find("ãƒ€ãƒƒã‚·ãƒ¥") then return "Sprint Heavy Attack" end
+    if s:find("ã‚¸ãƒ£ãƒ³ãƒ—") then return "Jump Heavy Attack" end
+    if s:find("ã—ãŒã¿ã¤ã") then return "Cling Heavy Attack" end
+    return "Heavy Attack"
+  elseif s:find("è½ä¸‹") then
+    return "Plunging Attack"
+  elseif s:find("å—ã‘èº«") then
+    return "Breakfall"
+  elseif s:find("é€šå¸¸æ”»æ’ƒ") then
+    return "Normal Attack"
+  end
+  return s:gsub("^CustomSkill_", ""):gsub("^NormalAttack_", ""):gsub("^Action_", ""):gsub("_", " ")
+end
 
 function DamageLog.add(dmg, target, isWeakPoint, isPawn, skillName, dmgRate)
   local now = os.clock()
@@ -4601,204 +4560,234 @@ function DamageLog.add_floating_number(msg, pos, color, isBig)
   local pX = pos.x or 0
   local pY = pos.y or 0
   local pZ = pos.z or 0
-  if pX == 0 and pY == 0 and pZ == 0 then return end
 
   local ofx = (math.random(7) - 4) * 0.12
   local ofy = (math.random(7) - 4) * 0.12
-  local finalColor = color or 0xFFFFFFFF
 
   local dn = {
     msg = tostring(msg),
-    pos = Vector3f.new(pX + ofx, pY + ofy, pZ),
-    color = finalColor,
-    baseColor = finalColor,
+    worldPos = Vector3f.new(pX + ofx, pY + ofy, pZ),
+    screenPos = nil,
+    baseColor = color or { 240, 240, 240, 255 },
     bigfont = isBig or false,
+    lifetime = 120,
+    maxLife = 120,
   }
-  damageNumbers[dn] = 120
-end
-
-local function DrawDamageNumber(damageNumber)
-  if damageNumber.msg ~= nil then
-    pcall(draw.world_text, damageNumber.msg, damageNumber.pos, damageNumber.color)
-  end
-  damageNumbers[damageNumber] = damageNumbers[damageNumber] - 1
-  damageNumber.pos.y = damageNumber.pos.y + 0.016
-  local remaining = damageNumbers[damageNumber]
-  local alpha = math.floor(clamp((remaining / 120) * 255, 0, 255))
-  damageNumber.color = (alpha << 24) | (damageNumber.baseColor & 0x00FFFFFF)
-  if damageNumbers[damageNumber] <= 0 then
-    damageNumbers[damageNumber] = nil
+  table.insert(damageNumbers, dn)
+  while #damageNumbers > 50 do
+    table.remove(damageNumbers, 1)
   end
 end
 
-function DamageLog.render_floating()
-  if not cfg.damage_floating_numbers then return end
-  local hasEntries = false
-  for _ in pairs(damageNumbers) do
-    hasEntries = true
-    break
-  end
-  if not hasEntries then return end
-
-  -- Draw normal font numbers
-  local pushed = false
-  if dmg_font then
-    pushed = pcall(imgui.push_font, dmg_font)
-  end
-  for k in pairs(damageNumbers) do
-    if not k.bigfont then
-      DrawDamageNumber(k)
-    end
-  end
-  if pushed then
-    pcall(imgui.pop_font)
-  end
-
-  -- Draw big font numbers
-  local pushedBig = false
-  if dmg_big_font then
-    pushedBig = pcall(imgui.push_font, dmg_big_font)
-  end
-  for k in pairs(damageNumbers) do
-    if k.bigfont then
-      DrawDamageNumber(k)
-    end
-  end
-  if pushedBig then
-    pcall(imgui.pop_font)
+function DamageLog.add_floating_screen(msg, sx, sy, color, isBig)
+  local dn = {
+    msg = tostring(msg),
+    worldPos = nil,
+    screenPos = { x = sx, y = sy },
+    baseColor = color or { 240, 240, 240, 255 },
+    bigfont = isBig or false,
+    lifetime = 120,
+    maxLife = 120,
+  }
+  table.insert(damageNumbers, dn)
+  while #damageNumbers > 50 do
+    table.remove(damageNumbers, 1)
   end
 end
 
-function DamageLog.render_hud()
-  if not cfg.damage_log_enabled then return end
+-- Render all combat damage elements on screen using the weapon menu's overlay engine
+local function render_damage_elements()
+  local showLog = cfg.damage_log_enabled
+  local showFloat = cfg.damage_floating_numbers
+
+  if not showLog and not showFloat then return end
+
   local now = os.clock()
   local duration = cfg.damage_log_duration or 5.0
   local maxLines = cfg.damage_log_max_lines or 8
 
-  local active = {}
-  for i = #DamageLog.entries, 1, -1 do
-    local e = DamageLog.entries[i]
-    local age = now - e.time
-    if age < duration then
-      table.insert(active, 1, e)
-      if #active >= maxLines then break end
+  local activeLog = {}
+  if showLog then
+    for i = #DamageLog.entries, 1, -1 do
+      local e = DamageLog.entries[i]
+      if (now - e.time) < duration then
+        table.insert(activeLog, 1, e)
+        if #activeLog >= maxLines then break end
+      end
+    end
+    if cfg.damage_log_preview and #activeLog == 0 then
+      table.insert(activeLog, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, skillName = "Blink Strike", dmgRate = 1.0, time = now })
+      table.insert(activeLog, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, skillName = "Arc of Might", dmgRate = 2.2, time = now })
+      table.insert(activeLog, { damage = 0, target = "Cyclops", reaction = "Blown", time = now })
+      if cfg.damage_log_include_pawns then
+        table.insert(activeLog, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, skillName = "High Levin", dmgRate = 1.0, time = now })
+      end
     end
   end
 
-  if cfg.damage_log_preview and #active == 0 then
-    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, skillName = "Blink Strike", dmgRate = 1.0, time = now })
-    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, skillName = "Arc of Might", dmgRate = 2.2, time = now })
-    table.insert(active, { damage = 0, target = "Cyclops", reaction = "Blown", time = now })
-    if cfg.damage_log_include_pawns then
-      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, skillName = "High Levin", dmgRate = 1.0, time = now })
-    end
-  end
-
-  if #active == 0 then return end
+  local hasFloats = (#damageNumbers > 0)
+  if #activeLog == 0 and not hasFloats then return end
 
   local sw, sh = screen_size()
   if not sw or not sh or sw <= 0 or sh <= 0 then sw, sh = 1920, 1080 end
 
-  local bounds_x = 0
-  local bounds_y = 0
-  local bounds_w = sw
-  local bounds_h = sh
+  pcall(imgui.set_next_window_pos, v2(0, 0), 1)
+  pcall(imgui.set_next_window_size, v2(sw, sh), 1)
+  local began = pcall(imgui.begin_window, "##WarfarerCombatDamageOverlay", nil, OVERLAY_FLAGS)
+  if not began then return end
 
-  if cfg.damage_log_ultrawide_constrain ~= false and (sw / sh) > 1.8 then
-    local safe_w = sh * (16.0 / 9.0)
-    bounds_x = (sw - safe_w) * 0.5
-    bounds_w = safe_w
+  local okd, dl = pcall(imgui.get_window_draw_list)
+  if not okd or not dl then
+    pcall(imgui.end_window)
+    return
   end
 
-  local w = cfg.damage_log_width or 420
-  local lineH = 22
-  local headerH = 26
-  local pad = 8
-  local h = headerH + (#active * lineH) + pad
+  local prevDl = R.dl
+  R.dl = dl
+  pcall(function() dl:push_clip_rect_fullscreen() end)
 
-  local offX = cfg.damage_log_offset_x or 35
-  local offY = cfg.damage_log_offset_y or 60
+  -- 1. Render 3D Floating Damage Numbers (projected via draw.world_to_screen + centered drop-shadow text)
+  if showFloat and hasFloats then
+    local i = 1
+    while i <= #damageNumbers do
+      local dn = damageNumbers[i]
+      dn.lifetime = dn.lifetime - 1
 
-  local corner = cfg.damage_log_corner or 1
-  local x, y
-  if corner == 2 then x = bounds_x + offX; y = bounds_y + offY
-  elseif corner == 4 then x = bounds_x + bounds_w - w - offX; y = bounds_y + offY
-  elseif corner == 3 then x = bounds_x + bounds_w - w - offX; y = bounds_y + bounds_h - h - offY
-  else x = bounds_x + offX; y = bounds_y + bounds_h - h - offY end
+      if dn.lifetime <= 0 then
+        table.remove(damageNumbers, i)
+      else
+        local alphaK = math.max(0.0, math.min(1.0, dn.lifetime / 30.0))
+        local alpha = math.floor(alphaK * 255)
+        local col = { dn.baseColor[1], dn.baseColor[2], dn.baseColor[3], alpha }
+        local fsize = dn.bigfont and 32 or 24
 
-  x = math.max(0, math.min(sw - w, x))
-  y = math.max(0, math.min(sh - h, y))
+        local posX, posY = nil, nil
 
-  local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
-  -- ARGB for REFramework draw API: (alpha << 24) | (red << 16) | (green << 8) | blue
-  local bgColor = (bgAlpha << 24) | (18 << 16) | (18 << 8) | 22
-  local borderColor = (bgAlpha << 24) | (214 << 16) | (178 << 8) | 98 -- Gold
-  local sepColor = (math.min(180, bgAlpha) << 24) | (100 << 16) | (160 << 8) | 180
+        if dn.worldPos then
+          dn.worldPos.y = dn.worldPos.y + 0.016
+          local okp, sp = pcall(draw.world_to_screen, dn.worldPos)
+          if okp and sp and sp.x and sp.y then
+            posX, posY = sp.x, sp.y
+          end
+        elseif dn.screenPos then
+          dn.screenPos.y = dn.screenPos.y - 0.75
+          posX, posY = dn.screenPos.x, dn.screenPos.y
+        end
 
-  local dps = 0
-  local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
-  if (now - DamageLog.last_hit_time) < 8.0 and combatDuration > 0 then
-    dps = math.floor(DamageLog.recent_damage / combatDuration)
-  end
+        if posX and posY and posX >= -100 and posX <= sw + 100 and posY >= -100 and posY <= sh + 100 then
+          text_c(dn.msg, posX, posY, col, fsize)
+        elseif dn.worldPos then
+          -- Fallback if world_to_screen is off-frustum
+          local argbCol = (alpha << 24) | (col[1] << 16) | (col[2] << 8) | col[3]
+          pcall(draw.world_text, dn.msg, dn.worldPos, argbCol)
+        end
 
-  local headerStr = "[Combat Log]"
-  if cfg.damage_log_show_dps and dps > 0 then
-    headerStr = string.format("[Combat Log]  DPS: %s  Total: %s", format_number(dps), format_number(DamageLog.recent_damage))
-  elseif cfg.damage_log_preview and #DamageLog.entries == 0 then
-    headerStr = "[Combat Log]  (Preview Mode)"
-  end
-
-  -- Native REFramework backbuffer draw (works in regular gameplay regardless of menu state)
-  pcall(draw.filled_rect, x, y, w, h, bgColor)
-  pcall(draw.outline_rect, x, y, w, h, borderColor)
-  pcall(draw.filled_rect, x + 6, y + headerH, w - 12, 1, sepColor)
-
-  local pushed_font = false
-  if dmg_log_font then
-    pushed_font = pcall(imgui.push_font, dmg_log_font)
-  end
-
-  pcall(draw.text, headerStr, x + 10, y + 5, 0xFFD8C08A)
-
-  for idx, entry in ipairs(active) do
-    local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-    local age = now - entry.time
-    local alphaK = 1.0
-    if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
-    local aByte = math.floor(alphaK * 255)
-    local lineCol = (aByte << 24) | (230 << 16) | (230 << 8) | 230
-    local lineText = ""
-
-    if entry.reaction then
-      lineText = string.format("Stagger: %s [%s]", entry.target, entry.reaction)
-      lineCol = (aByte << 24) | (255 << 16) | (160 << 8) | 64
-    else
-      local sourceStr = entry.isPawn and "Pawn" or "Arisen"
-      lineText = string.format("%s -> %s: %s", sourceStr, entry.target, format_number(entry.damage))
-      if entry.skillName and cfg.damage_log_show_skill_name then
-        lineText = lineText .. string.format(" [%s]", clean_skill_name(entry.skillName))
-      end
-      if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
-        lineText = lineText .. string.format(" (x%.2f)", entry.dmgRate)
-      end
-      if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-        lineText = lineText .. " [WEAKPOINT]"
-        lineCol = (aByte << 24) | (255 << 16) | (80 << 8) | 32
-      elseif entry.isPawn then
-        lineCol = (aByte << 24) | (160 << 16) | (208 << 8) | 255
+        i = i + 1
       end
     end
-    pcall(draw.text, lineText, x + 10, lineY, lineCol)
   end
 
-  if pushed_font then
-    pcall(imgui.pop_font)
+  -- 2. Render HUD Combat Log Overlay (using weapon menu styles & panel layout)
+  if showLog and #activeLog > 0 then
+    local bounds_x = 0
+    local bounds_y = 0
+    local bounds_w = sw
+    local bounds_h = sh
+
+    if cfg.damage_log_ultrawide_constrain ~= false and (sw / sh) > 1.8 then
+      local safe_w = sh * (16.0 / 9.0)
+      bounds_x = (sw - safe_w) * 0.5
+      bounds_w = safe_w
+    end
+
+    local w = cfg.damage_log_width or 420
+    local lineH = 22
+    local headerH = 26
+    local pad = 8
+    local h = headerH + (#activeLog * lineH) + pad
+
+    local offX = cfg.damage_log_offset_x or 35
+    local offY = cfg.damage_log_offset_y or 60
+
+    local corner = cfg.damage_log_corner or 1
+    local x, y
+    if corner == 2 then x = bounds_x + offX; y = bounds_y + offY
+    elseif corner == 4 then x = bounds_x + bounds_w - w - offX; y = bounds_y + offY
+    elseif corner == 3 then x = bounds_x + bounds_w - w - offX; y = bounds_y + bounds_h - h - offY
+    else x = bounds_x + offX; y = bounds_y + bounds_h - h - offY end
+
+    x = math.max(0, math.min(sw - w, x))
+    y = math.max(0, math.min(sh - h, y))
+
+    local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
+
+    local dps = 0
+    local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
+    if (now - DamageLog.last_hit_time) < 8.0 and combatDuration > 0 then
+      dps = math.floor(DamageLog.recent_damage / combatDuration)
+    end
+
+    local headerStr = "[Combat Log]"
+    if cfg.damage_log_show_dps and dps > 0 then
+      headerStr = string.format("[Combat Log]  DPS: %s  Total: %s", format_number(dps), format_number(DamageLog.recent_damage))
+    elseif cfg.damage_log_preview and #DamageLog.entries == 0 then
+      headerStr = "[Combat Log]  (Preview Mode)"
+    end
+
+    local bgCol = { 20, 18, 14, bgAlpha }
+    local borderCol = T("accent")
+    local sepCol = T("accent_soft")
+
+    pcall(function()
+      dl:add_rect_filled(v2(x, y), v2(x + w, y + h), abgr(bgCol), 6.0)
+      dl:add_rect(v2(x, y), v2(x + w, y + h), abgr(borderCol), 6.0, 0, 1.5)
+      dl:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), abgr(sepCol), 1.0)
+    end)
+
+    text(headerStr, x + 10, y + 5, T("accent_hi"), 14)
+
+    for idx, entry in ipairs(activeLog) do
+      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+      local age = now - entry.time
+      local alphaK = 1.0
+      if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
+      local aByte = math.floor(alphaK * 255)
+
+      local lineText = ""
+      local lineCol = { 236, 228, 210, aByte }
+
+      if entry.reaction then
+        lineText = string.format("Stagger: %s [%s]", entry.target, entry.reaction)
+        lineCol = { 255, 175, 40, aByte }
+      else
+        local sourceStr = entry.isPawn and "Pawn" or "Arisen"
+        lineText = string.format("%s -> %s: %s", sourceStr, entry.target, format_number(entry.damage))
+        if entry.skillName and cfg.damage_log_show_skill_name then
+          lineText = lineText .. string.format(" [%s]", clean_skill_name(entry.skillName))
+        end
+        if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
+          lineText = lineText .. string.format(" (x%.2f)", entry.dmgRate)
+        end
+        if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+          lineText = lineText .. " [WEAKPOINT]"
+          lineCol = { 255, 65, 45, aByte }
+        elseif entry.isPawn then
+          lineCol = { 100, 200, 255, aByte }
+        end
+      end
+
+      text(lineText, x + 10, lineY, lineCol, 13)
+    end
   end
+
+  pcall(function() dl:pop_clip_rect() end)
+  pcall(imgui.end_window)
+  R.dl = prevDl
 end
 
+-- Backward compatibility alias
 function DamageLog.render()
-  pcall(DamageLog.render_floating)
-  pcall(DamageLog.render_hud)
+  pcall(render_damage_elements)
 end
 
 -- Hook into game damage calculation via app.HitController:updateDamage (based on Nexus mod 148: Damage Number by xyzkljl1)
@@ -4929,13 +4918,13 @@ local function init_damage_hook()
             if isWeak and cfg.damage_log_show_weakpoint then
               numText = numText .. "!"
             end
-            local numCol = 0xFFFFFFFF
+            local numCol = { 240, 240, 240, 255 }
             if isWeak then
-              numCol = 0xFFFF3020 -- Bright OrangeRed
+              numCol = { 255, 65, 45, 255 }
             elseif dmg >= 1000 then
-              numCol = 0xFFFFD700 -- Radiant Gold
+              numCol = { 255, 215, 0, 255 }
             elseif isPawn then
-              numCol = 0xFF60D0FF -- Sky Blue
+              numCol = { 100, 200, 255, 255 }
             end
             DamageLog.add_floating_number(numText, hitPos, numCol, dmg >= 1000)
           end
@@ -4970,7 +4959,7 @@ local function init_damage_hook()
           if cfg.damage_floating_numbers then
             local cpos = get_character_pos(chara)
             if cpos then
-              DamageLog.add_floating_number("[" .. reaction_name .. "]", cpos, 0xFFFFA040, true)
+              DamageLog.add_floating_number("[" .. reaction_name .. "]", cpos, { 255, 175, 40, 255 }, true)
             end
           end
         end)
@@ -5651,6 +5640,17 @@ local function draw_main_ui()
         DamageLog.add(1450, "Cyclops", true, false, "Heavensward", 1.5)
         DamageLog.add(210, "Harpy", false, true, "Shot", 1.0)
         DamageLog.add_reaction("Cyclops", "Large Down")
+        pcall(function()
+          local pchar = P.char or mainplayer
+          if pchar then
+            local cpos = get_character_pos(pchar)
+            if cpos then
+              DamageLog.add_floating_number( 1450!, Vector3f.new(cpos.x, cpos.y + 0.6, cpos.z), { 255, 65, 45, 255 }, true)
+            end
+          end
+          local sw, sh = screen_size()
+          DamageLog.add_floating_screen(1450!, sw * 0.5, sh * 0.35, { 255, 65, 45, 255 }, true)
+        end)
       end
       imgui.same_line()
       imgui.text_colored("(Sends live test damage and reaction entries)", 0xFFAAAAAA)

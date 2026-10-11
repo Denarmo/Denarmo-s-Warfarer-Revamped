@@ -1,9 +1,5 @@
-# Archives
-*.zip
-*.rar
-*.7z
-*.tar
-*.gz
+# Source mods directory
+source_mods/
 
 # Logs & temporary files
 *.log

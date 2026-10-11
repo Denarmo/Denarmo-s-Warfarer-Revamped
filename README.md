@@ -1,102 +1,151 @@
 # Denarmo's Warfarer Revamped
 
-A comprehensive REFramework mod for **Dragon's Dogma 2** (including full support for the **Dark Arisen** expansion).
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/)
+[![Game](https://img.shields.io/badge/Dragon's%20Dogma%202-Dark%20Arisen%20DLC-orange.svg)](https://www.dragonsdogma.com/)
+[![Framework](https://img.shields.io/badge/REFramework-Compatible-green.svg)](https://github.com/praydog/REFramework)
+[![Mod Manager](https://img.shields.io/badge/Fluffy%20Mod%20Manager-Ready-purple.svg)](https://www.fluffymodmanager.com/)
 
-This mod merges and enhances the functionality of two essential Warfarer mods:
-- **Warfarer's Arsenal** (by LeyDWeMvc / nexusmods)
-- **Enhanced Warfarer Vocation** (by mue3UufKW / nexusmods)
+An all-in-one, next-generation **REFramework** enhancement for the Warfarer vocation in **Dragon's Dogma 2**, built with native compatibility for the **Dragon's Dogma 2: Dark Arisen** expansion.
 
----
-
-## Features
-
-### 1. Radial Weapon Selection Wheel
-- Hold the trigger button or hotkey to open an intuitive radial HUD wheel displaying all your carried/equipped weapons.
-- Dynamic slow-motion effect while the wheel is open (fully customizable slow-mo factor and duration).
-- Seamless controller stick steering or mouse selection with configurable deadzones.
-- Instant, fluid weapon switching without opening inventory menus.
-
-### 2. Dynamic Weapon Skillsets (6 Custom Skill Slots)
-- Automatically switches your active weapon skill palette whenever you equip or switch weapons.
-- Supports all **6 skill slots** (Slots 1–4 standard diamond + Slots 5–6 extended slots).
-- Full compatibility with the **Dark Arisen DLC** expansion, including all new vocational skills (CS13 / CS14 / CS15 and Obelisk abilities) across all vocations:
-  - Fighter, Archer, Mage, Thief, Warrior, Sorcerer, Mystic Spearhand, Magick Archer, Trickster, and Warfarer.
-
-### 3. Multiple Presets & Hotkey Cycling
-- Save and edit multiple skill presets per weapon and vocation.
-- Cycle through presets in real time during combat using hotkeys or controller combinations.
-- Guild editing mode to configure skill presets directly at inns and vocation guilds.
-
-### 4. Controller & Keyboard Customization
-- Built-in controller button configuration supporting Xbox and PlayStation glyphs/layouts.
-- Support for dual-button combos, hold duration tuning, and stick direction selection.
-- Full keyboard/mouse hotkey remapping.
-- In-game REFramework diagnostics and controller button test overlay.
+This mod merges and refines the core capabilities of two beloved Warfarer mods:
+- **Warfarer's Arsenal** (by [LeyDWeMvc](https://www.nexusmods.com/dragonsdogma2/mods/1717)) — Fluid radial weapon selection wheel, slow-motion steering, and responsive weapon switching.
+- **Enhanced Warfarer Vocation** (by [mue3UufKW](https://www.nexusmods.com/dragonsdogma2/mods/1142)) — Dynamic per-weapon skill palettes, multiple loadout presets, and hotkey preset cycling.
 
 ---
 
-## Installation
+## 🌟 Key Features
 
-### Via Fluffy Mod Manager (Recommended)
-1. Download the release archive or create a zip containing `modinfo.ini`, `screenshot.png`, and the `reframework/` folder.
-2. Place the zip file in `<Fluffy Mod Manager>/Games/DragonsDogma2/Mods/`.
-3. Open Fluffy Mod Manager, refresh the mod list, and enable **Denarmo's Warfarer Revamped**.
+### 1. Intuitive Radial Weapon Selection Wheel
+- **Native HUD Integration:** Renders a clean, high-resolution radial wheel displaying all carried weapons using the game's authentic GUI pipeline.
+- **Customizable Slow-Motion:** Slow down time while selecting weapons to execute split-second tactical switches in the heat of combat.
+- **Dual Steering Support:** Navigate the wheel effortlessly with either your controller analog stick or mouse pointer, with configurable deadzones and sensitivity.
+- **Fast Indexed Weapon Switching:** Direct equip routines bypass inventory menus for seamless, fluid combos.
 
-### Manual Installation
-1. Ensure [REFramework](https://github.com/praydog/REFramework) is installed in your Dragon's Dogma 2 directory.
-2. Copy the contents of this repository into your game directory:
-   - Copy `reframework/` to `<Dragon's Dogma 2 Directory>/reframework/`
-3. Launch Dragon's Dogma 2 and press `Insert` to open the REFramework overlay to configure settings.
+### 2. Dynamic Weapon Skillsets (Expanded to 6 Skill Slots)
+- **Automatic Palette Swapping:** Automatically replaces your active custom skill palette the moment a weapon is equipped or switched.
+- **Full 6-Skill Support:** Extends beyond the default 4-skill limitation to support all 6 custom skill slots (Diamond face buttons + Slots 5 & 6) used by extended skill frameworks and modern overhauls.
+- **Dark Arisen DLC Native Compatibility:** Comprehensive support for all new Dark Arisen expansion abilities, including CS13, CS14, CS15 skill tiers, and Obelisk abilities across all vocations (Fighter, Archer, Mage, Thief, Warrior, Sorcerer, Mystic Spearhand, Magick Archer, Trickster, and Warfarer) via dynamic reflection.
+
+### 3. Loadout Presets & Combat Cycling
+- **Multiple Presets Per Weapon:** Configure and save distinct skill builds for individual weapons (e.g., Elemental Mage vs. Support Mage, Burst Dagger vs. Counter Dagger).
+- **On-The-Fly Hotkey Cycling:** Cycle through your saved presets mid-battle using customizable controller combinations or keyboard hotkeys.
+- **Guild & Inn Customizer:** In-game guild editing mode allows you to fine-tune presets directly at vocation guilds and inns.
+
+### 4. Comprehensive Controller & Input Customization
+- **Xbox & PlayStation Glyphs:** Supports native Xbox and DualShock/DualSense button prompts with automatic layout detection.
+- **Dual-Button Combos & Hold Timing:** Bind wheel triggers to single buttons or multi-button combinations (e.g., `LB + RB`, `L1 + R1`), with customizable hold thresholds.
+- **In-Game Diagnostic Overlay:** Real-time controller button monitor and stick axis visualizer built right into the REFramework menu.
 
 ---
 
-## Building & Packaging
-To generate the distribution zip with an updated version number:
+## 📦 Installation
+
+### Option A: Fluffy Mod Manager (Recommended)
+1. Download the latest release package: `Denarmo's Warfarer Revamped v1.0.1.zip` from the [Releases](https://github.com/) tab or `build/` folder.
+2. Drop the `.zip` file directly into your Fluffy Mod Manager mod directory:
+   ```
+   <Fluffy Mod Manager Path>\Games\DragonsDogma2\Mods\
+   ```
+3. Open Fluffy Mod Manager, click **Refresh mod list**, and toggle **Denarmo's Warfarer Revamped** to **ON**.
+
+### Option B: Manual Installation
+1. Ensure [REFramework](https://github.com/praydog/REFramework) is installed in your Dragon's Dogma 2 installation folder (where `DD2.exe` is located).
+2. Copy the `reframework/` folder from this repository directly into your game root directory:
+   ```
+   <Dragon's Dogma 2 Directory>\reframework\
+       ├── autorun\
+       │   └── WarfarerRevamped.lua
+       ├── fonts\
+       │   └── pala.ttf
+       └── images\
+           └── dd2-*.png
+   ```
+
+---
+
+## 🎮 How to Use & In-Game Controls
+
+### Default Controls
+| Action | Controller (Xbox / PS) | Keyboard & Mouse |
+| :--- | :--- | :--- |
+| **Open Radial Wheel** | Hold `Left Bumper` (`LB` / `L1`) | Hold `Middle Mouse Button` (or custom hotkey) |
+| **Select Weapon** | Right Stick / Left Stick direction | Mouse cursor direction |
+| **Confirm & Switch** | Release Trigger Button | Release Hotkey |
+| **Cycle Skill Presets** | Dual-button combo (Configurable) | Customizable Keybind |
+| **Open REFramework Menu**| — | `Insert` key |
+
+### Configuring the Mod
+1. Launch Dragon's Dogma 2 and press `Insert` on your keyboard to open the REFramework overlay.
+2. Under **Script Generated UI**, navigate to **Denarmo's Warfarer Revamped**.
+3. Here you can:
+   - **Radial Settings:** Adjust slow-motion factor, wheel radius, icon scaling, and animation speed.
+   - **Controller Settings:** Remap trigger buttons, set hold duration, deadzone, and select stick steering mode.
+   - **Preset Manager:** Assign custom skills for each weapon, customize slot 1 through slot 6, and configure presets.
+
+---
+
+## 🛠️ Repository Structure
+
+```
+Denarmo's Warfarer Revamped/
+├── .github/                     # Issue templates and workflows
+├── .githooks/                   # Git automation hooks (auto-versioning)
+├── build/                       # Packaged distribution archives (.zip)
+│   └── Denarmo's Warfarer Revamped v1.0.1.zip
+├── reframework/
+│   ├── autorun/
+│   │   └── WarfarerRevamped.lua # Unified Lua engine
+│   ├── fonts/
+│   │   └── pala.ttf             # Palatino Linotype font for HUD text
+│   └── images/
+│       └── dd2-*.png            # High-resolution vocation icons
+├── source_mods/                 # (Ignored) Original reference mod archives
+├── build.ps1                    # Automated versioning and packaging script
+├── modinfo.ini                  # Fluffy Mod Manager manifest
+├── screenshot.png               # Mod Manager preview thumbnail
+└── README.md                    # Project documentation
+```
+
+### Building from Source
+To package a new release build with an automatically incremented version:
 ```powershell
 .\build.ps1
 ```
-This automatically:
-1. Bumps the patch version number (or you can specify `.\build.ps1 -Version "1.1.0"`).
-2. Updates `modinfo.ini` and `reframework/autorun/WarfarerRevamped.lua`.
-3. Packages the mod into `build/Denarmo's Warfarer Revamped v<version>.zip`.
-4. Deploys directly to Fluffy Mod Manager and the local Dragon's Dogma 2 installation (if detected).
-
----
-
-## Structure
-
-```
-├── .gitignore
-├── .githooks/
-│   └── pre-commit
-├── build.ps1
-├── build/
-│   └── Denarmo's Warfarer Revamped v1.0.1.zip
-├── modinfo.ini
-├── screenshot.png
-├── README.md
-└── reframework/
-    ├── autorun/
-    │   └── WarfarerRevamped.lua
-    ├── fonts/
-    │   └── pala.ttf
-    └── images/
-        ├── dd2-archer.png
-        ├── dd2-fighter.png
-        ├── dd2-mage.png
-        ├── dd2-magick_archer.png
-        ├── dd2-mystic_spearhand.png
-        ├── dd2-sorcerer.png
-        ├── dd2-thief.png
-        ├── dd2-trickster.png
-        ├── dd2-warrior.png
-        └── *-50.png (small icons)
+Or specify an explicit version tag:
+```powershell
+.\build.ps1 -Version "1.1.0"
 ```
 
 ---
 
-## Credits & Acknowledgements
-- **praydog** for [REFramework](https://github.com/praydog/REFramework).
-- **LeyDWeMvc** for the original [Warfarer's Arsenal](https://www.nexusmods.com/dragonsdogma2/mods/1717).
-- **mue3UufKW** for the original [Enhanced Warfarer Vocation](https://www.nexusmods.com/dragonsdogma2/mods/1142).
-- Capcom for Dragon's Dogma 2 & Dark Arisen expansion.
+## 🤝 Credits & Acknowledgements
+
+This project stands on the shoulders of the talented Dragon's Dogma 2 modding community. Immense gratitude and credit go to:
+
+- **[LeyDWeMvc](https://www.nexusmods.com/dragonsdogma2/mods/1717)** — Original creator of **Warfarer's Arsenal**, whose innovative radial wheel architecture, HUD GUI cloning, and smooth stick steering form the basis of the weapon switching system.
+- **[mue3UufKW](https://www.nexusmods.com/dragonsdogma2/mods/1142)** — Original creator of **Enhanced Warfarer Vocation**, whose dynamic skill swap logic, preset architecture, and stamina toggle laid the groundwork for multi-weapon skillsets.
+- **[praydog](https://github.com/praydog/REFramework)** — For the indispensable **REFramework** tool, runtime IL2CPP API, and hook system.
+- **[Capcom](https://www.capcom.com/)** — For creating Dragon's Dogma 2 and the Dark Arisen expansion.
+
+---
+
+## ⚖️ Legal Disclaimer & Notice
+
+> [!NOTE]
+> Please read the following legal notices carefully.
+
+1. **Unofficial Fan Creation:**
+   *Denarmo's Warfarer Revamped* is a free, open-source, non-commercial fan modification created strictly for personal enjoyment, study, and educational enhancement of *Dragon's Dogma 2*. It is not produced, authorized, supported, or endorsed by **CAPCOM CO., LTD.**
+
+2. **Intellectual Property Rights:**
+   - *Dragon's Dogma*, *Dragon's Dogma 2*, *Dragon's Dogma 2: Dark Arisen*, Capcom, and all associated names, character designs, logos, images, audio, and game assets are trademarks, registered trademarks, and/or copyrighted property of **CAPCOM CO., LTD.**
+   - All rights belong to their respective owners. No copyright or trademark infringement is intended.
+
+3. **No Commercial Exploitation:**
+   This modification is distributed entirely free of charge. No payment, paywall, donation gate, or commercial license is required to download or use this software.
+
+4. **"As-Is" Software Disclaimer:**
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS, CONTRIBUTORS, OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+5. **Save Game & User Responsibility:**
+   Modding video games always carries inherent risks. Users are strongly advised to create backup copies of their Dragon's Dogma 2 save files prior to installing or running any third-party modifications. The authors assume no liability for lost saves, corrupted data, or software conflicts.

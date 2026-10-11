@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.3", 43
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.4", 43
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -111,6 +111,7 @@ local DEFAULTS = {
   filter_guild_skills_by_weapon = true,
   load_guild_class_skills = true,
   unlock_all_skills_in_presets = true,
+  free_rearmament_slot = true,
   -- Combat Damage Log UI
   damage_log_enabled = true,
   damage_log_preview = false,
@@ -1026,8 +1027,11 @@ function Presets.apply(jobId)
   pcall(function() bQ = skillCtx:getEquipList(10) end)
   for slot = 1, numSlots do
     local skId = skills_to_set[slot]
-    if skId and skId > 0 and skId ~= REARMAMENT_SKILL_ID then
-      if cfg.unlock_all_skills_in_presets then
+    if cfg.free_rearmament_slot == false and slot == 4 then
+      skId = REARMAMENT_SKILL_ID
+    end
+    if skId and skId > 0 then
+      if cfg.unlock_all_skills_in_presets and skId ~= REARMAMENT_SKILL_ID then
         Presets.ensure_skill_available(skillCtx, skId)
       end
       pcall(function() skillCtx:setSkill(10, skId, slot - 1) end)
@@ -1096,6 +1100,91 @@ pcall(function()
           end
         end
       end, nil)
+    end
+  end
+end)
+
+-- Hook Rearmament requirement checks across game systems to ensure Warfarer weapon loadout
+-- editing and switching are never blocked even without Rearmament in the 4 combat slots.
+pcall(function()
+  local skillCtxType = sdk.find_type_definition("app.SkillContext")
+  if skillCtxType then
+    for _, m in ipairs(skillCtxType:get_methods() or {}) do
+      local name = m:get_name()
+      if name == "isEquipCustomSkill" or name == "isEquipSkill" or name == "isEquip" or name == "isEquipped" or name == "hasCustomSkill" or name == "hasSkill" then
+        local target_rearm = false
+        sdk.hook(m, function(args)
+          target_rearm = false
+          local p1 = args[2] and sdk.to_int64(args[2])
+          local p2 = args[3] and sdk.to_int64(args[3])
+          if p1 == REARMAMENT_SKILL_ID or p2 == REARMAMENT_SKILL_ID or p1 == 100 or p2 == 100 then
+            target_rearm = true
+          end
+        end, function(retval)
+          if target_rearm then return sdk.to_ptr(true) end
+          return retval
+        end)
+      elseif name == "getCustomSkillIndex" or name == "getSkillIndex" then
+        local target_rearm = false
+        sdk.hook(m, function(args)
+          target_rearm = false
+          local p1 = args[2] and sdk.to_int64(args[2])
+          local p2 = args[3] and sdk.to_int64(args[3])
+          if p1 == REARMAMENT_SKILL_ID or p2 == REARMAMENT_SKILL_ID or p1 == 100 or p2 == 100 then
+            target_rearm = true
+          end
+        end, function(retval)
+          if target_rearm and retval and sdk.to_int64(retval) < 0 then
+            return sdk.to_ptr(0)
+          end
+          return retval
+        end)
+      end
+    end
+  end
+
+  local equipDataType = sdk.find_type_definition("app.EquipData")
+  if equipDataType then
+    for _, m in ipairs(equipDataType:get_methods() or {}) do
+      local name = m:get_name()
+      if name:find("ArisenWeapon") or name:find("WeaponSelectable") or name:find("Selectable") then
+        sdk.hook(m, function(args) end, function(retval)
+          if P.job == 10 or P.job == cfg.warfarer_job then
+            return sdk.to_ptr(true)
+          end
+          return retval
+        end)
+      end
+    end
+  end
+
+  local equipListType = sdk.find_type_definition("app.HumanCustomSkillEquipList")
+  if equipListType then
+    for _, m in ipairs(equipListType:get_methods() or {}) do
+      local name = m:get_name()
+      if name:find("isEquip") or name:find("contains") or name:find("has") then
+        local target_rearm = false
+        sdk.hook(m, function(args)
+          target_rearm = false
+          local p1 = args[2] and sdk.to_int64(args[2])
+          if p1 == REARMAMENT_SKILL_ID or p1 == 100 then target_rearm = true end
+        end, function(retval)
+          if target_rearm then return sdk.to_ptr(true) end
+          return retval
+        end)
+      end
+    end
+  end
+
+  local job10Mgr = sdk.find_type_definition("app.Job10WeaponManager")
+  if job10Mgr then
+    for _, m in ipairs(job10Mgr:get_methods() or {}) do
+      local name = m:get_name()
+      if name:find("isEnable") or name:find("isSelectable") or name:find("canEquip") or name:find("isRearm") then
+        sdk.hook(m, function(args) end, function(retval)
+          return sdk.to_ptr(true)
+        end)
+      end
     end
   end
 end)
@@ -1324,6 +1413,17 @@ local function fire_rearm()
   end
   Skill.own = true
   local ok, err = scall(sel, "requestJob10CustomSkill()")
+  if not ok or ok == false then
+    local im = sdk.get_managed_singleton("app.ItemManager")
+    if im then pcall(function() im:call("setNextArisenWeapon()") end) end
+    local ok2 = pcall(function()
+      sel:call("requestCustomSkill(app.CustomSkillDef.Job10_CustomSkill, System.Int32)", 100, 0)
+    end)
+    if not ok2 then
+      pcall(function() sel:call("requestCustomSkill", 100, 0) end)
+    end
+    ok = true
+  end
   Skill.own = false
   if not ok then sw_fail(w, "the press failed: " .. tostring(err)); return end
   SW.last = frame
@@ -1342,7 +1442,17 @@ do
         local sel0 = mcall(P.human, "get_HumanActionSelector()")
         if sel0 then
           Skill.own = true
-          scall(sel0, "requestJob10CustomSkill()")
+          local ok = scall(sel0, "requestJob10CustomSkill()")
+          if not ok or ok == false then
+            local im = sdk.get_managed_singleton("app.ItemManager")
+            if im then pcall(function() im:call("setNextArisenWeapon()") end) end
+            local ok2 = pcall(function()
+              sel0:call("requestCustomSkill(app.CustomSkillDef.Job10_CustomSkill, System.Int32)", 100, 0)
+            end)
+            if not ok2 then
+              pcall(function() sel0:call("requestCustomSkill", 100, 0) end)
+            end
+          end
           Skill.own = false
         end
       end
@@ -4399,72 +4509,85 @@ function DamageLog.render()
     headerStr = "[Combat Log]  (Preview Mode)"
   end
 
-  pcall(imgui.set_next_window_pos, v2(0, 0), 1)
-  pcall(imgui.set_next_window_size, v2(sw, sh), 1)
-  local began = pcall(imgui.begin_window, "##WarfarerDamageLogOverlay", nil, OVERLAY_FLAGS)
-  local draw_list = nil
-  if began then
-    local okd, dl = pcall(imgui.get_window_draw_list)
-    if okd and dl then draw_list = dl end
-  end
-  if not draw_list and imgui.get_overlay_draw_list then
-    local okd, dl = pcall(imgui.get_overlay_draw_list)
-    if okd and dl then draw_list = dl end
-  end
-  if not draw_list and imgui.get_background_draw_list then
-    local okd, dl = pcall(imgui.get_background_draw_list)
-    if okd and dl then draw_list = dl end
-  end
-
-  if draw_list then
-    local p1 = v2(x, y)
-    local p2 = v2(x + w, y + h)
-
+  local drawn = false
+  if draw and draw.filled_rect and draw.text then
     pcall(function()
-      draw_list:add_rect_filled(p1, p2, bgColor, 6.0)
-      draw_list:add_rect(p1, p2, borderColor, 6.0, 0, 1.5)
-      draw_list:add_text(v2(x + 10, y + 6), 0xFF8AC0D8, headerStr)
-      draw_list:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
-    end)
+      draw.filled_rect(x, y, w, h, bgColor)
+      draw.outline_rect(x, y, w, h, borderColor)
+      draw.line(x + 6, y + headerH, x + w - 6, y + headerH, 0x5564A0B4)
+      draw.text(headerStr, x + 10, y + 6, 0xFF8AC0D8)
 
-    -- Render damage lines
-    for idx, entry in ipairs(active) do
-      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-      local age = now - entry.time
-      local alphaK = 1.0
-      if age > (duration - 1.0) then
-        alphaK = math.max(0.0, duration - age)
-      end
-      local aByte = math.floor(alphaK * 255)
-      if aByte > 0 then
-        local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-        local tagColor = entry.isPawn and ((aByte << 24) | 0x00FFD0A0) or ((aByte << 24) | 0x0062B2D6)
-
-        pcall(function()
-          draw_list:add_text(v2(x + 10, lineY), tagColor, tag)
-          local targetText = " -> " .. entry.target .. ":"
-          draw_list:add_text(v2(x + 85, lineY), (aByte << 24) | 0x00CCCCCC, targetText)
-
+      for idx, entry in ipairs(active) do
+        local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+        local age = now - entry.time
+        local alphaK = 1.0
+        if age > (duration - 1.0) then
+          alphaK = math.max(0.0, duration - age)
+        end
+        local aByte = math.floor(alphaK * 255)
+        if aByte > 0 then
+          local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
           local dmgStr = format_number(entry.damage)
           if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
             dmgStr = dmgStr .. " [WEAKPOINT!]"
           end
-
-          local dmgColor = (aByte << 24) | 0x00FFFFFF
+          local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+          local lineCol = (aByte << 24) | 0x00FFFFFF
           if entry.isWeakPoint then
-            dmgColor = (aByte << 24) | 0x003355FF -- Red/Orange in ABGR
+            lineCol = (aByte << 24) | 0x003355FF -- Red/Orange in ABGR
           elseif entry.damage >= 1000 then
-            dmgColor = (aByte << 24) | 0x0055D7FF -- Gold
+            lineCol = (aByte << 24) | 0x0055D7FF -- Gold
+          elseif entry.isPawn then
+            lineCol = (aByte << 24) | 0x00FFD0A0 -- Teal/Cyan
           end
-
-          draw_list:add_text(v2(x + 205, lineY), dmgColor, dmgStr)
-        end)
+          draw.text(lineText, x + 10, lineY, lineCol)
+        end
       end
-    end
+      drawn = true
+      DamageLog.last_rendered_frame = frame
+    end)
   end
 
-  if began then
-    pcall(imgui.end_window)
+  -- Fallback to ImGui background draw list if draw.* was unavailable or failed
+  if not drawn and imgui and imgui.get_background_draw_list then
+    pcall(function()
+      local dl = imgui.get_background_draw_list()
+      if dl then
+        local p1 = v2(x, y)
+        local p2 = v2(x + w, y + h)
+        dl:add_rect_filled(p1, p2, bgColor, 6.0)
+        dl:add_rect(p1, p2, borderColor, 6.0, 0, 1.5)
+        dl:add_text(v2(x + 10, y + 6), 0xFF8AC0D8, headerStr)
+        dl:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
+
+        for idx, entry in ipairs(active) do
+          local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+          local age = now - entry.time
+          local alphaK = 1.0
+          if age > (duration - 1.0) then
+            alphaK = math.max(0.0, duration - age)
+          end
+          local aByte = math.floor(alphaK * 255)
+          if aByte > 0 then
+            local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+            local dmgStr = format_number(entry.damage)
+            if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+              dmgStr = dmgStr .. " [WEAKPOINT!]"
+            end
+            local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+            local lineCol = (aByte << 24) | 0x00FFFFFF
+            if entry.isWeakPoint then
+              lineCol = (aByte << 24) | 0x003355FF
+            elseif entry.damage >= 1000 then
+              lineCol = (aByte << 24) | 0x0055D7FF
+            elseif entry.isPawn then
+              lineCol = (aByte << 24) | 0x00FFD0A0
+            end
+            dl:add_text(v2(x + 10, lineY), lineCol, lineText)
+          end
+        end
+      end
+    end)
   end
 end
 
@@ -4985,9 +5108,10 @@ local function draw_main_ui()
   imgui.separator()
   if imgui.tree_node("Vocation Skillsets (6 Skill Slots) & Dark Arisen DLC") then
     if imgui.button("Restore Skillset Settings to Defaults##res_sec_skills") then
-      reset_keys({ "skill_swap_enabled", "rearmament_stamina_consumption", "filter_guild_skills_by_weapon", "show_swap_notification", "load_guild_class_skills", "unlock_all_skills_in_presets" })
+      reset_keys({ "skill_swap_enabled", "rearmament_stamina_consumption", "filter_guild_skills_by_weapon", "show_swap_notification", "load_guild_class_skills", "unlock_all_skills_in_presets", "free_rearmament_slot" })
     end
     ui_check("Enable Skillset Presets Swapping", "skill_swap_enabled")
+    ui_check("Free Rearmament Slot (All 4 slots for class skills; swap weapons freely)", "free_rearmament_slot")
     ui_check("Rearmament Consumes Stamina", "rearmament_stamina_consumption")
     ui_check("Filter Vocation Guild Skills by Equipped Weapon", "filter_guild_skills_by_weapon")
     ui_check("Show Preset Swap Notification", "show_swap_notification")
@@ -5161,6 +5285,9 @@ local function draw_main_ui()
 end
 
 re.on_draw_ui(function()
+  if DamageLog.last_rendered_frame ~= frame then
+    pcall(DamageLog.render)
+  end
   if not imgui.tree_node(MOD) then return end
   local ok, err = pcall(draw_main_ui)
   if not ok then imgui.text_colored("UI error: " .. tostring(err), RED) end

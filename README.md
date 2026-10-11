@@ -107,7 +107,8 @@ Denarmo's Warfarer Revamped/
 ├── .github/                     # Issue templates and workflows
 ├── .githooks/                   # Git automation hooks (auto-versioning)
 ├── build/                       # Packaged distribution archives (.zip)
-│   └── Denarmo's Warfarer Revamped v1.0.3.zip
+│   ├── Denarmo's Warfarer Revamped v1.0.3.zip
+│   └── Denarmo's Warfarer Revamped v1.0.4.zip
 ├── reframework/
 │   ├── autorun/
 │   │   └── WarfarerRevamped.lua # Unified Lua engine

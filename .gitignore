@@ -10,3 +10,4 @@ re2_framework_log*.txt
 build_merge.ps1
 scanner*.cs
 validator*.cs
+scratch/

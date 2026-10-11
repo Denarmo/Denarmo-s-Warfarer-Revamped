@@ -1,32 +1,42 @@
-# Release v1.0.6 — Denarmo's Warfarer Revamped
+# Release v1.0.7 — Denarmo's Warfarer Revamped
 
 **Denarmo's Warfarer Revamped** is an all-in-one REFramework modification for *Dragon's Dogma 2*, combining radial weapon switching, dynamic vocations & 6-slot skillsets, Dark Arisen DLC integration, combat analytics, and configurable gameplay enhancements.
 
 ---
 
-### 🚀 What's New in v1.0.6
+### 🚀 What's New in v1.0.7
 
-1. **Combat Damage Log On-Screen Text & Ultrawide Fix:**
-   - **Guaranteed On-Screen Rendering:** Resolved an issue where REFramework's DirectX 12 backend failed to draw text using legacy drawing calls. The combat log is now rendered using a dedicated transparent, input-passthrough ImGui fullscreen overlay window (`dl:add_rect_filled`, `dl:add_text`, with Palatino Linotype or REFramework font scaling) identical to the proven Warfarer Arsenal wheel pipeline.
-   - **Ultrawide & Multi-Monitor Support (21:9, 32:9):** Added a new setting `Constrain to 16:9 HUD Area (Ultrawide displays)` (enabled by default). When enabled, coordinates dynamically anchor relative to Dragon's Dogma 2's native 16:9 pillarbox safe area (`Wide.ox()`) rather than the monitor's outer physical edge, keeping the combat log perfectly visible within the player's primary vision. Can be toggled off to push the log to the monitor bezel if preferred.
+1. **Direct2D Hardware-Accelerated Combat Damage Log Overlay:**
+   - **Native DirectX 12 Presentation Rendering:** Migrated the combat damage log from ImGui to native Direct2D (`d2d.register`) via the industry-standard `reframework-d2dx` plugin (the same technology utilized by popular combat meters like *Team Damage Meter* and *Damage Number*).
+   - **Renders During Active Gameplay:** Direct2D renders directly into the swapchain every single game frame, ensuring damage numbers, enemy hit tags, and DPS statistics remain fully visible while fighting, roaming, and exploring without requiring the REFramework menu (Insert key) to be open.
+   - **Ultrawide & High-Resolution Display Support (21:9, 32:9, 3440x1440):** 
+     - Queries `d2d.surface_size()` for pixel-exact monitor dimensions.
+     - With `Constrain to 16:9 HUD Area` enabled, dynamically centers the combat log within the 16:9 gameplay safe zone (e.g. 2560x1440 centered on 3440x1440) for immediate peripheral visibility.
+     - Supports all four screen corners (Bottom-Left, Top-Left, Bottom-Right, Top-Right) with customizable X/Y margins and width.
+   - **Rich Color & Typography Hierarchy:**
+     - Header: Warm Arisen Gold (`#D8C08A`) with real-time encounter DPS and total damage.
+     - Arisen Damage: Crisp White.
+     - Weakpoint Hits: Fiery Orange-Red with `[WEAKPOINT!]` indicator.
+     - High Impact Hits (>=1,000 damage): Radiant Gold.
+     - Pawn Damage: Soft Cyan.
+     - Dynamic 1-second alpha fadeout as hits expire.
+   - **Immediate In-Menu Verification:** "Send Test Log Entries" and HUD Preview toggle let you position and test the log anywhere on screen instantly.
+   - **ImGui Fallback:** Gracefully falls back to ImGui drawing if the Direct2D plugin is ever absent.
 
-2. **New Settings Tab: "Gameplay Tweaks (Incantation Speed & Fall Damage)":**
-   - **Incantation Speed Multiplier:**
-     - Allows fine-tuning the casting and preparation speed of spells for Mage, Sorcerer, and magic vocations.
-     - Smooth slider from `1.0x` (Vanilla) to `5.0x` (Instant) with steps of `0.05x`.
-     - Convenient one-click quick presets: `1.0x (Normal)`, `1.5x`, `2.0x (Fast)`, `3.0x (Very Fast)`, and `5.0x (Instant)`.
-     - Safely hooks into character magic controllers and parameters (`app.HumanMagicController`, `app.HumanMagicParameter`, `app.Job03Parameter`, `app.Job06Parameter`).
-   - **Disable Fall Damage:**
-     - Checkbox toggle to completely eliminate fatal fall heights and fall impact damage for the Arisen.
-     - Multi-layer protection: sets `CharacterFallParam` damage and fatal thresholds to immune heights, suppresses `calcFallDamage` calculations on fall controllers, and intercepts fall damage in `app.HitController:updateDamage`.
-   - **Restore Defaults:**
-     - Includes individual `[Reset]` buttons for each setting, plus a one-click `Restore Gameplay Defaults` button.
+2. **Complete Fall Damage Elimination Fix:**
+   - **Airtight Player Entity Pointer Resolution:** Fixed an issue where REFramework Lua wrapper userdata references caused `targetChara == pChar` comparisons to fail. Implemented raw 64-bit native pointer matching (`:get_address()`) across character entities and GameObjects.
+   - **Zero-Damage & Original Call Suppression:** In `app.HitController:updateDamage`, when the Arisen suffers non-enemy damage (fall impact, gravity, or environmental impact), damage, damage points, and loss damage are zeroed out and `sdk.PreHookResult.SKIP_ORIGINAL` is returned, preventing health loss and loss gauge penalties entirely.
+   - **Dynamic Engine Fall & Fatal Height Hooking:** Broadened dynamic reflection across all IL2CPP candidate types (`app.Human`, `app.HumanFallController`, `app.FallController`, `app.HumanFallParam`, `app.HumanDamageController`, `app.LossGaugeController`, etc.) to eliminate fatal landing states and override fatal fall heights to 99,999m.
+
+3. **Spell Incantation Speed Multiplier Dynamic Reflection:**
+   - Dynamically discovers and hooks magic preparation and chant rate methods across magic vocations (Mage, Sorcerer, Magic Archer, Warfarer) with customizable multipliers from `1.0x` (Vanilla) up to `5.0x` (Instant).
 
 ---
 
 ### 📦 Release Asset
-- `Denarmo's Warfarer Revamped v1.0.6.zip` (located in the `build/` folder)
+- `Denarmo's Warfarer Revamped v1.0.7.zip` (located in the `build/` folder)
 
 ### 💻 Installation
-- **Fluffy Mod Manager:** Place `Denarmo's Warfarer Revamped v1.0.6.zip` into `<Fluffy Mod Manager>\Games\DragonsDogma2\Mods\`, refresh the mod list, and enable it.
-- **Manual:** Extract `reframework/` to your Dragon's Dogma 2 game directory (`D:\SteamLibrary\steamapps\common\Dragons Dogma 2`). Requires [REFramework](https://github.com/praydog/REFramework).
+- **Fluffy Mod Manager:** Place `Denarmo's Warfarer Revamped v1.0.7.zip` into `<Fluffy Mod Manager>\Games\DragonsDogma2\Mods\`, refresh the mod list, and enable it.
+- **Prerequisites:** [REFramework](https://github.com/praydog/REFramework) and [D2DX (reframework-d2d)](https://github.com/cursey/reframework-d2d) (included with standard Fluffy mod setups).
+- **Manual:** Extract `reframework/` to your Dragon's Dogma 2 game directory (`D:\SteamLibrary\steamapps\common\Dragons Dogma 2`).

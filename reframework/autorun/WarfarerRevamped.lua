@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.6", 44
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.7", 45
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -241,8 +241,50 @@ end
 ------------------------------------------------------------------------------------------------
 -- Player and wheel state
 ------------------------------------------------------------------------------------------------
-local P = { char = nil, human = nil, jobctx = nil, job = nil }
+local P = { char = nil, human = nil, jobctx = nil, job = nil, player_go = nil, char_addr = nil, go_addr = nil }
 local W = { open = false, pinned = false, options = {}, sel = nil, sx = 0, sy = 0, angle = nil, prev_held = false, equipped = nil }
+
+local function is_same_ptr(a, b)
+  if not a or not b then return false end
+  if a == b then return true end
+  local okA, addrA = pcall(function() return a:get_address() end)
+  local okB, addrB = pcall(function() return b:get_address() end)
+  return (okA and okB and addrA and addrB and addrA ~= 0 and addrA == addrB)
+end
+
+local function is_player_entity(entity)
+  if not entity then return false end
+  if P.char_addr then
+    local ok, addr = pcall(function() return entity:get_address() end)
+    if ok and addr and addr == P.char_addr then return true end
+  end
+  if P.go_addr then
+    local ok, addr = pcall(function() return entity:get_address() end)
+    if ok and addr and addr == P.go_addr then return true end
+    local ok2, entGO = pcall(function() return entity:get_GameObject() end)
+    if ok2 and entGO then
+      local ok3, goAddr = pcall(function() return entGO:get_address() end)
+      if ok3 and goAddr and goAddr == P.go_addr then return true end
+    end
+  end
+  if is_same_ptr(entity, P.char) or is_same_ptr(entity, P.human) then return true end
+  local isP = false
+  pcall(function() isP = entity:call("isPlayer") end)
+  if isP == true then return true end
+  pcall(function() isP = entity:call("get_IsPlayer") end)
+  if isP == true then return true end
+  return false
+end
+
+local function is_pawn_entity(entity)
+  if not entity then return false end
+  local isPw = false
+  pcall(function() isPw = entity:call("isPawn") end)
+  if isPw == true then return true end
+  pcall(function() isPw = entity:call("get_IsPawn") end)
+  if isPw == true then return true end
+  return false
+end
 
 local function refresh_player()
   local cm = sdk.get_managed_singleton("app.CharacterManager")
@@ -250,6 +292,11 @@ local function refresh_player()
   P.human = mcall(P.char, "get_Human()")
   P.jobctx = mcall(P.human, "get_JobContext()")
   P.job = tonumber(mfield(P.jobctx, "CurrentJob"))
+  P.player_go = P.char and mcall(P.char, "get_GameObject()")
+  local okA, addrA = pcall(function() return P.char and P.char:get_address() end)
+  P.char_addr = okA and addrA or nil
+  local okG, addrG = pcall(function() return P.player_go and P.player_go:get_address() end)
+  P.go_addr = okG and addrG or nil
 end
 local function gui_mgr() return sdk.get_managed_singleton("app.GuiManager") end
 local function is_paused() return mcall(gui_mgr(), "isPausedGUI()") == true end
@@ -4385,7 +4432,21 @@ local DamageLog = {
   recent_damage = 0,
   combat_start_time = 0,
   last_hit_time = 0,
+  d2d_active = false,
+  last_rendered_frame = 0,
 }
+
+local d2d_font_title = nil
+local d2d_font_line = nil
+local d2d_available = false
+
+local function to_argb(a, r, g, b)
+  local alpha = math.floor(clamp(a or 255, 0, 255))
+  local red = math.floor(clamp(r or 255, 0, 255))
+  local green = math.floor(clamp(g or 255, 0, 255))
+  local blue = math.floor(clamp(b or 255, 0, 255))
+  return (alpha << 24) | (red << 16) | (green << 8) | blue
+end
 
 function DamageLog.add(dmg, target, isWeakPoint, isPawn)
   local now = os.clock()
@@ -4410,7 +4471,8 @@ function DamageLog.add(dmg, target, isWeakPoint, isPawn)
   end
 end
 
-function DamageLog.render()
+-- Native Direct2D rendering loop (runs every frame in DX12 presentation, whether REFramework menu is open or closed)
+function DamageLog.render_d2d()
   if not cfg.damage_log_enabled then return end
   local now = os.clock()
   local duration = cfg.damage_log_duration or 5.0
@@ -4428,18 +4490,27 @@ function DamageLog.render()
 
   -- Preview mode: display sample lines if no active hits
   if cfg.damage_log_preview and #active == 0 then
-    table.insert(active, { damage = 350, target = "Goblin", isWeakPoint = false, isPawn = false, time = now })
-    table.insert(active, { damage = 1420, target = "Cyclops", isWeakPoint = true, isPawn = false, time = now })
+    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, time = now })
+    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, time = now })
     if cfg.damage_log_include_pawns then
-      table.insert(active, { damage = 280, target = "Harpy", isWeakPoint = false, isPawn = true, time = now })
+      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, time = now })
     end
   end
 
   if #active == 0 then return end
 
-  local sw, sh = screen_size()
-  if not sw or not sh or sw <= 0 or sh <= 0 then
-    sw, sh = 1920, 1080
+  -- Screen resolution (with ultrawide 3440x1440 support)
+  local sw, sh = 1920, 1080
+  if d2d and d2d.surface_size then
+    local dsw, dsh = d2d.surface_size()
+    if dsw and dsh and dsw > 0 and dsh > 0 then
+      sw, sh = dsw, dsh
+    end
+  else
+    local scrw, scrh = screen_size()
+    if scrw and scrh and scrw > 0 and scrh > 0 then
+      sw, sh = scrw, scrh
+    end
   end
 
   local bounds_x = 0
@@ -4447,15 +4518,11 @@ function DamageLog.render()
   local bounds_w = sw
   local bounds_h = sh
 
-  if cfg.damage_log_ultrawide_constrain ~= false then
-    local k = Wide.k()
-    local ox = Wide.ox()
-    if ox and k and k > 0 then
-      bounds_x = ox
-      bounds_y = (Geo.get and Geo.get().y) or 0
-      bounds_w = 1920 * k
-      bounds_h = 1080 * k
-    end
+  -- Ultrawide 16:9 safe frame centering (e.g. 2560x1440 centered on 3440x1440)
+  if cfg.damage_log_ultrawide_constrain ~= false and (sw / sh) > 1.8 then
+    local safe_w = sh * (16.0 / 9.0)
+    bounds_x = (sw - safe_w) * 0.5
+    bounds_w = safe_w
   end
 
   local w = cfg.damage_log_width or 380
@@ -4487,10 +4554,11 @@ function DamageLog.render()
   y = math.max(0, math.min(sh - h, y))
 
   local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
-  local bgColor = (bgAlpha << 24) | 0x00121216
-  local borderColor = (bgAlpha << 24) | 0x0062B2D6 -- Warfarer Gold
+  local bgColor = to_argb(bgAlpha, 18, 18, 22)
+  local borderColor = to_argb(bgAlpha, 214, 178, 98) -- Warfarer Gold
+  local sepColor = to_argb(math.min(180, bgAlpha), 100, 160, 180)
 
-  -- Header with combat DPS if active
+  -- Header text with live DPS
   local dps = 0
   local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
   if (now - DamageLog.last_hit_time) < 8.0 and combatDuration > 0 then
@@ -4504,7 +4572,141 @@ function DamageLog.render()
     headerStr = "[Combat Log]  (Preview Mode)"
   end
 
-  -- Render using ImGui transparent fullscreen overlay window (identical to Warfarer Arsenal wheel)
+  -- Background box and gold border
+  if d2d.fill_rounded_rect then
+    d2d.fill_rounded_rect(x, y, w, h, 6.0, 6.0, bgColor)
+  elseif d2d.fill_rect then
+    d2d.fill_rect(x, y, w, h, bgColor)
+  end
+
+  if d2d.rounded_rect then
+    d2d.rounded_rect(x, y, w, h, 6.0, 6.0, 1.5, borderColor)
+  elseif d2d.outline_rect then
+    d2d.outline_rect(x, y, w, h, 1.5, borderColor)
+  end
+
+  if d2d.line then
+    d2d.line(x + 6, y + headerH, x + w - 6, y + headerH, 1.0, sepColor)
+  end
+
+  -- Header text
+  if d2d_font_title and d2d.text then
+    d2d.text(d2d_font_title, headerStr, x + 10, y + 5, to_argb(255, 216, 192, 138))
+  end
+
+  -- Damage lines with smooth fading and color highlights
+  if d2d_font_line and d2d.text then
+    for idx, entry in ipairs(active) do
+      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+      local age = now - entry.time
+      local alphaK = 1.0
+      if age > (duration - 1.0) then
+        alphaK = math.max(0.0, duration - age)
+      end
+      local aByte = math.floor(alphaK * 255)
+      if aByte > 0 then
+        local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+        local dmgStr = format_number(entry.damage)
+        if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+          dmgStr = dmgStr .. " [WEAKPOINT!]"
+        end
+        local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+
+        local lineCol = to_argb(aByte, 255, 255, 255)
+        if entry.isWeakPoint then
+          lineCol = to_argb(aByte, 255, 69, 0) -- Fire OrangeRed
+        elseif entry.damage >= 1000 then
+          lineCol = to_argb(aByte, 255, 215, 0) -- Radiant Gold
+        elseif entry.isPawn then
+          lineCol = to_argb(aByte, 160, 208, 255) -- Soft Cyan
+        end
+
+        d2d.text(d2d_font_line, lineText, x + 10, lineY, lineCol)
+      end
+    end
+  end
+
+  DamageLog.d2d_active = true
+  DamageLog.last_rendered_frame = frame
+end
+
+-- ImGui Fallback (used when D2DX plugin is not installed or when previewing inside REFramework menu)
+function DamageLog.render_imgui()
+  if not cfg.damage_log_enabled or d2d_available then return end
+  local now = os.clock()
+  local duration = cfg.damage_log_duration or 5.0
+  local maxLines = cfg.damage_log_max_lines or 8
+
+  local active = {}
+  for i = #DamageLog.entries, 1, -1 do
+    local e = DamageLog.entries[i]
+    local age = now - e.time
+    if age < duration then
+      table.insert(active, 1, e)
+      if #active >= maxLines then break end
+    end
+  end
+
+  if cfg.damage_log_preview and #active == 0 then
+    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, time = now })
+    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, time = now })
+    if cfg.damage_log_include_pawns then
+      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, time = now })
+    end
+  end
+
+  if #active == 0 then return end
+
+  local sw, sh = screen_size()
+  if not sw or not sh or sw <= 0 or sh <= 0 then sw, sh = 1920, 1080 end
+
+  local bounds_x = 0
+  local bounds_y = 0
+  local bounds_w = sw
+  local bounds_h = sh
+
+  if cfg.damage_log_ultrawide_constrain ~= false and (sw / sh) > 1.8 then
+    local safe_w = sh * (16.0 / 9.0)
+    bounds_x = (sw - safe_w) * 0.5
+    bounds_w = safe_w
+  end
+
+  local w = cfg.damage_log_width or 380
+  local lineH = 22
+  local headerH = 26
+  local pad = 8
+  local h = headerH + (#active * lineH) + pad
+
+  local offX = cfg.damage_log_offset_x or 35
+  local offY = cfg.damage_log_offset_y or 60
+
+  local corner = cfg.damage_log_corner or 1
+  local x, y
+  if corner == 2 then x = bounds_x + offX; y = bounds_y + offY
+  elseif corner == 4 then x = bounds_x + bounds_w - w - offX; y = bounds_y + offY
+  elseif corner == 3 then x = bounds_x + bounds_w - w - offX; y = bounds_y + bounds_h - h - offY
+  else x = bounds_x + offX; y = bounds_y + bounds_h - h - offY end
+
+  x = math.max(0, math.min(sw - w, x))
+  y = math.max(0, math.min(sh - h, y))
+
+  local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
+  local bgColor = (bgAlpha << 24) | 0x00121216
+  local borderColor = (bgAlpha << 24) | 0x0062B2D6
+
+  local dps = 0
+  local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
+  if (now - DamageLog.last_hit_time) < 8.0 and combatDuration > 0 then
+    dps = math.floor(DamageLog.recent_damage / combatDuration)
+  end
+
+  local headerStr = "[Combat Log]"
+  if cfg.damage_log_show_dps and dps > 0 then
+    headerStr = string.format("[Combat Log]  DPS: %s  Total: %s", format_number(dps), format_number(DamageLog.recent_damage))
+  elseif cfg.damage_log_preview and #DamageLog.entries == 0 then
+    headerStr = "[Combat Log]  (Preview Mode)"
+  end
+
   pcall(imgui.set_next_window_pos, v2(0, 0), 1)
   pcall(imgui.set_next_window_size, v2(sw, sh), 1)
   local began = pcall(imgui.begin_window, "##WarfarerCombatLogOverlay", nil, OVERLAY_FLAGS)
@@ -4516,10 +4718,6 @@ function DamageLog.render()
   if not dl and imgui.get_foreground_draw_list then
     local okf, fdl = pcall(imgui.get_foreground_draw_list)
     if okf and fdl then dl = fdl end
-  end
-  if not dl and imgui.get_background_draw_list then
-    local okb, bdl = pcall(imgui.get_background_draw_list)
-    if okb and bdl then dl = bdl end
   end
 
   if dl then
@@ -4539,9 +4737,7 @@ function DamageLog.render()
         local lineY = y + headerH + 4 + ((idx - 1) * lineH)
         local age = now - entry.time
         local alphaK = 1.0
-        if age > (duration - 1.0) then
-          alphaK = math.max(0.0, duration - age)
-        end
+        if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
         local aByte = math.floor(alphaK * 255)
         if aByte > 0 then
           local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
@@ -4551,13 +4747,9 @@ function DamageLog.render()
           end
           local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
           local lineCol = (aByte << 24) | 0x00FFFFFF
-          if entry.isWeakPoint then
-            lineCol = (aByte << 24) | 0x003355FF
-          elseif entry.damage >= 1000 then
-            lineCol = (aByte << 24) | 0x0055D7FF
-          elseif entry.isPawn then
-            lineCol = (aByte << 24) | 0x00FFD0A0
-          end
+          if entry.isWeakPoint then lineCol = (aByte << 24) | 0x003355FF
+          elseif entry.damage >= 1000 then lineCol = (aByte << 24) | 0x0055D7FF
+          elseif entry.isPawn then lineCol = (aByte << 24) | 0x00FFD0A0 end
 
           local pushedL = fLine and pcall(imgui.push_font, fLine)
           dl:add_text(v2(x + 10, lineY), lineCol, lineText)
@@ -4568,11 +4760,44 @@ function DamageLog.render()
     end)
   end
 
-  if began then
-    pcall(imgui.end_window)
-  end
+  if began then pcall(imgui.end_window) end
   DamageLog.last_rendered_frame = frame
 end
+
+-- Backward compatibility alias
+function DamageLog.render()
+  if d2d_available then
+    DamageLog.render_d2d()
+  else
+    DamageLog.render_imgui()
+  end
+end
+
+-- Register Direct2D Hardware Drawing Loop
+local function setup_d2d()
+  if d2d_available then return end
+  if not d2d or not d2d.register then return end
+  pcall(function()
+    d2d.register(
+      function()
+        pcall(function()
+          pcall(function() d2d_font_title = d2d.Font.new("Arial", 15) end)
+          if not d2d_font_title then pcall(function() d2d_font_title = d2d.Font.new("Tahoma", 15) end) end
+          pcall(function() d2d_font_line = d2d.Font.new("Arial", 13) end)
+          if not d2d_font_line then pcall(function() d2d_font_line = d2d.Font.new("Tahoma", 13) end) end
+          d2d_available = true
+          log_act("Combat Damage Log: Direct2D registered with native fonts")
+        end)
+      end,
+      function()
+        pcall(function()
+          DamageLog.render_d2d()
+        end)
+      end
+    )
+  end)
+end
+pcall(setup_d2d)
 
 -- Hook into game damage calculation via app.HitController:updateDamage
 local damage_hook_initialized = false
@@ -4595,64 +4820,53 @@ local function init_damage_hook()
       function(args)
         curHitCtrl = sdk.to_managed_object(args[2])
         curHitInfo = sdk.to_managed_object(args[3])
-        if curHitInfo then
-          preDamage = extract_damage(curHitInfo)
-        else
-          preDamage = 0
-        end
+        if not curHitCtrl or not curHitInfo then return end
 
-        -- Suppress Fall Damage on Player if enabled
-        if cfg.no_fall_damage and curHitCtrl then
-          local pChar = P.char or (P.human and mcall(P.human, "get_CachedCharacter"))
-          if not pChar then
-            local cm = sdk.get_managed_singleton("app.CharacterManager")
-            if cm then pChar = mcall(cm, "get_ManualPlayer()") end
-          end
+        preDamage = extract_damage(curHitInfo)
+
+        -- Fall Damage Suppression for Arisen
+        if cfg.no_fall_damage then
           local targetChara = get_character_from_hit_ctrl(curHitCtrl)
-          local isPlayerTarget = (pChar and targetChara == pChar)
-          if not isPlayerTarget and targetChara then
-            pcall(function() isPlayerTarget = mcall(targetChara, "get_IsPlayer") end)
-          end
-
-          if isPlayerTarget and curHitInfo then
+          if is_player_entity(targetChara) then
+            -- Attacker resolution
             local atkObj = nil
             pcall(function() atkObj = curHitInfo:get_AttackOwnerObject() or curHitInfo:get_field("AttackOwnerObject") end)
             local atkChara = nil
             pcall(function() atkChara = curHitInfo:get_AttackOwnerCharacter() or curHitInfo:get_field("AttackOwnerCharacter") end)
 
-            local isFall = false
-            if not atkObj and not atkChara then
-              local td = curHitInfo:get_type_definition()
-              local typeName = td and td:get_full_name() or ""
-              if typeName:find("Fall") or typeName:find("fall") then
-                isFall = true
-              else
-                pcall(function()
-                  local dmgType = tostring(curHitInfo:get_DamageType() or curHitInfo:get_field("DamageType") or "")
-                  local atkType = tostring(curHitInfo:get_AttackType() or curHitInfo:get_field("AttackType") or "")
-                  if dmgType:find("Fall") or atkType:find("Fall") or dmgType:find("fall") or atkType:find("fall") then
-                    isFall = true
-                  end
-                end)
-                if not isFall and pChar then
-                  pcall(function()
-                    local fallCtrl = mcall(pChar, "get_FallController") or (P.human and mcall(P.human, "get_FallController"))
-                    if fallCtrl and (mcall(fallCtrl, "get_IsFall") or mcall(fallCtrl, "get_IsLanding") or mcall(fallCtrl, "isFalling")) then
-                      isFall = true
-                    end
-                  end)
-                end
+            local isEnemyAttack = false
+            if atkChara and not is_player_entity(atkChara) and not is_pawn_entity(atkChara) then
+              isEnemyAttack = true
+            end
+            if not isEnemyAttack and atkObj and not is_player_entity(atkObj) and not is_pawn_entity(atkObj) then
+              local okC, comp = pcall(function() return atkObj:get_Component(sdk.typeof("app.Character")) end)
+              if okC and comp and not is_player_entity(comp) and not is_pawn_entity(comp) then
+                isEnemyAttack = true
               end
             end
 
-            if isFall then
+            -- If NOT an enemy attacking, it is fall / gravity / self / world hazard
+            if not isEnemyAttack then
               pcall(function()
                 if curHitInfo.set_Damage then curHitInfo:set_Damage(0) end
                 if curHitInfo.set_DamagePoint then curHitInfo:set_DamagePoint(0) end
+                if curHitInfo.set_LossDamage then curHitInfo:set_LossDamage(0) end
                 if curHitInfo.Damage then curHitInfo.Damage = 0 end
+                if curHitInfo.DamagePoint then curHitInfo.DamagePoint = 0 end
+                if curHitInfo.LossDamage then curHitInfo.LossDamage = 0 end
+                local td = curHitInfo:get_type_definition()
+                if td then
+                  local fD = td:get_field("Damage")
+                  if fD then fD:set_data(curHitInfo, 0) end
+                  local fDP = td:get_field("DamagePoint")
+                  if fDP then fDP:set_data(curHitInfo, 0) end
+                  local fLD = td:get_field("LossDamage")
+                  if fLD then fLD:set_data(curHitInfo, 0) end
+                end
               end)
-              curHitInfo = nil
+              log_act("Fall / impact damage prevented on Arisen!")
               curHitCtrl = nil
+              curHitInfo = nil
               preDamage = 0
               return sdk.PreHookResult.SKIP_ORIGINAL
             end
@@ -4683,7 +4897,7 @@ local function init_damage_hook()
 
         pcall(function()
           local targetChara = get_character_from_hit_ctrl(hitCtrl)
-          if not targetChara then return end
+          if not targetChara or is_player_entity(targetChara) then return end
 
           local dmg = extract_damage(hitInfo)
           if dmg <= 0 and preDmg > 0 then
@@ -4698,101 +4912,20 @@ local function init_damage_hook()
           if dmg <= 0 then return end
 
           -- Player and pawn references
-          local pChar = P.char or (P.human and mcall(P.human, "get_CachedCharacter"))
-          if not pChar then
-            local cm = sdk.get_managed_singleton("app.CharacterManager")
-            if cm then pChar = mcall(cm, "get_ManualPlayer()") end
-          end
-          local pGO = pChar and mcall(pChar, "get_GameObject()")
-
-          local mainPawn = nil
-          pcall(function()
-            local cm = sdk.get_managed_singleton("app.CharacterManager")
-            if cm then
-              local pl = mcall(cm, "get_ManualPlayer()")
-              if pl then mainPawn = mcall(pl, "get_MainPawn()") end
-            end
-          end)
-          local pawnGO = mainPawn and mcall(mainPawn, "get_GameObject()")
-
-          local targetGO = mcall(targetChara, "get_GameObject()")
-
-          -- Check if target is player or friendly pawn
-          if (pChar and targetChara == pChar) or (pGO and targetGO == pGO) then
-            return
-          end
-          if (mainPawn and targetChara == mainPawn) or (pawnGO and targetGO == pawnGO) then
-            return
-          end
-
-          -- Match attacker
           local isPlayer = false
           local isPawn = false
 
-          local function check_obj(obj)
-            if not obj then return false, false end
-            if pGO and obj == pGO then return true, false end
-            if pawnGO and obj == pawnGO then return false, true end
+          local atkObj = nil
+          pcall(function() atkObj = hitInfo:get_AttackOwnerObject() or hitInfo:get_field("AttackOwnerObject") end)
+          local atkChara = nil
+          pcall(function() atkChara = hitInfo:get_AttackOwnerCharacter() or hitInfo:get_field("AttackOwnerCharacter") end)
 
-            local isP, isPw = false, false
-            pcall(function()
-              local xf = obj:get_Transform()
-              if xf then
-                local root = xf:get_Root()
-                local rGO = root and root:get_GameObject()
-                if pGO and rGO == pGO then isP = true end
-                if pawnGO and rGO == pawnGO then isPw = true end
-
-                if not isP and not isPw then
-                  local parent = xf:get_Parent()
-                  local parGO = parent and parent:get_GameObject()
-                  if pGO and parGO == pGO then isP = true end
-                  if pawnGO and parGO == pawnGO then isPw = true end
-                end
-              end
-            end)
-            return isP, isPw
-          end
-
-          -- 1. Check AttackOwnerObject
-          local ownerObj = nil
-          pcall(function()
-            ownerObj = (hitInfo.get_AttackOwnerObject and hitInfo:get_AttackOwnerObject()) or hitInfo:call("get_AttackOwnerObject")
-          end)
-          if not ownerObj then
-            pcall(function()
-              ownerObj = hitInfo:get_field("AttackOwnerObject") or hitInfo["<AttackOwnerObject>k__BackingField"] or hitInfo:get_field("<AttackOwnerObject>k__BackingField")
-            end)
-          end
-          if not ownerObj then
-            pcall(function() ownerObj = hitInfo.AttackOwnerObject end)
-          end
-
-          if ownerObj then
-            local isP, isPw = check_obj(ownerObj)
-            if isP then isPlayer = true end
-            if isPw then isPawn = true end
-          end
-
-          -- 2. Check AttackOwnerCharacter / Attacker
-          if not isPlayer and not isPawn then
-            pcall(function()
-              local atkChara = mcall(hitInfo, "get_AttackOwnerCharacter()") or mcall(hitInfo, "get_AttackOwner()") or mcall(hitInfo, "get_OwnerCharacter()")
-              if atkChara then
-                if pChar and atkChara == pChar then isPlayer = true
-                elseif mainPawn and atkChara == mainPawn then isPawn = true
-                else
-                  local atkGO = mcall(atkChara, "get_GameObject()")
-                  local isP, isPw = check_obj(atkGO)
-                  if isP then isPlayer = true end
-                  if isPw then isPawn = true end
-                end
-              end
-            end)
-          end
-
-          -- 3. If could not definitively attribute to pawn, attribute to player (Warfarer)
-          if not isPlayer and not isPawn then
+          if is_player_entity(atkChara) or is_player_entity(atkObj) then
+            isPlayer = true
+          elseif is_pawn_entity(atkChara) or is_pawn_entity(atkObj) then
+            isPawn = true
+          else
+            -- Attribute to player
             isPlayer = true
           end
 
@@ -4806,6 +4939,7 @@ local function init_damage_hook()
             local n = targetChara:get_Name()
             if n and n ~= "" and n ~= "GameObject" then targetName = n end
           end)
+          local targetGO = mcall(targetChara, "get_GameObject()")
           if targetName == "Enemy" and targetGO then
             pcall(function()
               local gn = targetGO:get_Name()
@@ -4839,68 +4973,32 @@ local function init_gameplay_tweaks()
   local ok, err = pcall(function()
     gameplay_tweaks_initialized = true
 
-    -- 1. Hook CharacterFallParam / HumanFallParam / FallParam
-    local fallParamTypes = {
-      "app.CharacterFallParam",
+    local candidateTypes = {
+      -- Fall & Damage candidates
+      "app.Human",
+      "app.Character",
+      "app.HumanCharacter",
       "app.HumanFallParam",
+      "app.CharacterFallParam",
       "app.FallParam",
-    }
-    for _, typeName in ipairs(fallParamTypes) do
-      local td = sdk.find_type_definition(typeName)
-      if td then
-        local mMinH = td:get_method("get_MinDamageHeight")
-        if mMinH then
-          sdk.hook(mMinH, function() end, function(retval)
-            if cfg.no_fall_damage then return sdk.float_to_ptr(99999.0) end
-            return retval
-          end)
-        end
-        local mFatalH = td:get_method("get_FatalHeight")
-        if mFatalH then
-          sdk.hook(mFatalH, function() end, function(retval)
-            if cfg.no_fall_damage then return sdk.float_to_ptr(99999.0) end
-            return retval
-          end)
-        end
-        local mDmgRate = td:get_method("get_DamageRate")
-        if mDmgRate then
-          sdk.hook(mDmgRate, function() end, function(retval)
-            if cfg.no_fall_damage then return sdk.float_to_ptr(0.0) end
-            return retval
-          end)
-        end
-        log_act("Gameplay tweaks: hooked fall parameters on " .. typeName)
-      end
-    end
-
-    -- 2. Hook calcFallDamage on fall / damage controllers
-    local fallControllerTypes = {
+      "app.HumanFallController",
+      "app.CharacterFallController",
+      "app.FallController",
+      "app.HumanDamageController",
+      "app.CharacterDamageController",
+      "app.DamageController",
       "app.HumanFallDamageController",
       "app.FallDamageController",
-      "app.HumanDamageController",
-      "app.HumanFallController",
-      "app.FallController",
-    }
-    for _, typeName in ipairs(fallControllerTypes) do
-      local td = sdk.find_type_definition(typeName)
-      if td then
-        for _, methName in ipairs({ "calcFallDamage", "calcDamage", "calcFallDamageRate", "applyFallDamage" }) do
-          local m = td:get_method(methName)
-          if m then
-            sdk.hook(m, function(args)
-              if cfg.no_fall_damage then return sdk.PreHookResult.SKIP_ORIGINAL end
-            end, function(retval)
-              if cfg.no_fall_damage then return sdk.to_ptr(0) end
-              return retval
-            end)
-            log_act("Gameplay tweaks: hooked " .. typeName .. ":" .. methName)
-          end
-        end
-      end
-    end
-
-    -- 3. Hook Incantation / Cast Speed on Magic Controllers and Parameters
-    local magicTypes = {
+      "app.HumanDamageParam",
+      "app.DamageParam",
+      "app.HumanStatus",
+      "app.CharacterStatus",
+      "app.HumanActionController",
+      "app.HumanPhysicsController",
+      "app.HumanPhysics",
+      "app.LossGaugeController",
+      "app.HumanLossGaugeController",
+      -- Magic & Incantation candidates
       "app.HumanMagicController",
       "app.CharacterMagicController",
       "app.MagicController",
@@ -4908,34 +5006,86 @@ local function init_gameplay_tweaks()
       "app.MagicParameter",
       "app.Job03Parameter",
       "app.Job06Parameter",
-      "app.HumanCharacter",
-      "app.Human",
+      "app.Job07Parameter",
+      "app.Job08Parameter",
+      "app.JobMagicParameter",
+      "app.ChantController",
+      "app.HumanChantController",
+      "app.MagicSkillController",
+      "app.HumanMagicSkillController",
     }
-    local speedMethodNames = {
-      "get_CastSpeedRate",
-      "get_ChantSpeedRate",
-      "get_ChantSpeed",
-      "get_CastSpeed",
-      "get_ChantProgressRate",
-      "get_ChantTimeRate",
-      "get_CastSpeedMultiplier",
-    }
-    for _, typeName in ipairs(magicTypes) do
+
+    for _, typeName in ipairs(candidateTypes) do
       local td = sdk.find_type_definition(typeName)
       if td then
-        for _, methName in ipairs(speedMethodNames) do
-          local m = td:get_method(methName)
-          if m then
-            sdk.hook(m, function() end, function(retval)
-              if cfg.incantation_speed_mult and cfg.incantation_speed_mult > 1.001 then
-                local v = sdk.to_float(retval)
-                if v and v > 0 then
-                  return sdk.float_to_ptr(v * cfg.incantation_speed_mult)
-                end
-              end
-              return retval
-            end)
-            log_act("Gameplay tweaks: hooked incantation speed on " .. typeName .. ":" .. methName)
+        log_act("Gameplay tweaks: discovered type " .. typeName)
+        local methods = td:get_methods()
+        if methods then
+          for _, m in ipairs(methods) do
+            local mName = m:get_name()
+            local mLower = mName:lower()
+
+            -- Fall damage & fatal fall hooks
+            if mLower:find("fall") and (mLower:find("damage") or mLower:find("fatal") or mLower:find("dead") or mLower:find("kill") or mLower:find("rate") or mLower:find("height")) then
+              log_act("Hooking fall method: " .. typeName .. ":" .. mName)
+              pcall(function()
+                sdk.hook(m,
+                  function(args)
+                    if cfg.no_fall_damage then
+                      local retType = m:get_return_type()
+                      local retName = retType and retType:get_full_name() or ""
+                      if retName == "System.Void" then
+                        return sdk.PreHookResult.SKIP_ORIGINAL
+                      end
+                    end
+                  end,
+                  function(retval)
+                    if cfg.no_fall_damage then
+                      local retType = m:get_return_type()
+                      local retName = retType and retType:get_full_name() or ""
+                      if retName == "System.Single" or retName == "System.Double" then
+                        if mLower:find("height") then
+                          return sdk.float_to_ptr(99999.0)
+                        else
+                          return sdk.float_to_ptr(0.0)
+                        end
+                      elseif retName == "System.Int32" or retName == "System.Int64" or retName == "System.UInt32" or retName == "System.UInt64" then
+                        return sdk.to_ptr(0)
+                      elseif retName == "System.Boolean" then
+                        if mLower:find("fatal") or mLower:find("damage") or mLower:find("dead") then
+                          return sdk.to_ptr(0)
+                        end
+                      end
+                    end
+                    return retval
+                  end
+                )
+              end)
+            end
+
+            -- Incantation / cast speed hooks
+            if (mLower:find("cast") or mLower:find("chant") or mLower:find("magic") or mLower:find("incant") or mLower:find("spell")) and (mLower:find("speed") or mLower:find("time") or mLower:find("rate") or mLower:find("progress")) then
+              log_act("Hooking spellcasting method: " .. typeName .. ":" .. mName)
+              pcall(function()
+                sdk.hook(m, function() end, function(retval)
+                  if cfg.incantation_speed_mult and cfg.incantation_speed_mult > 1.001 then
+                    local retType = m:get_return_type()
+                    local retName = retType and retType:get_full_name() or ""
+                    if retName == "System.Single" or retName == "System.Double" then
+                      local v = sdk.to_float(retval)
+                      if v and v > 0 then
+                        if mLower:find("time") then
+                          return sdk.float_to_ptr(v / cfg.incantation_speed_mult)
+                        else
+                          return sdk.float_to_ptr(v * cfg.incantation_speed_mult)
+                        end
+                      end
+                    end
+                  end
+                  return retval
+                end)
+              end)
+            end
           end
         end
       end
@@ -5489,8 +5639,8 @@ local function draw_main_ui()
 end
 
 re.on_draw_ui(function()
-  if DamageLog.last_rendered_frame ~= frame then
-    pcall(DamageLog.render)
+  if not d2d_available and DamageLog.last_rendered_frame ~= frame then
+    pcall(DamageLog.render_imgui)
   end
   if not imgui.tree_node(MOD) then return end
   local ok, err = pcall(draw_main_ui)

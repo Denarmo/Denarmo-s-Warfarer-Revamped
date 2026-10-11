@@ -50,10 +50,28 @@ This mod merges and enhances the functionality of two essential Warfarer mods:
 
 ---
 
+## Building & Packaging
+To generate the distribution zip with an updated version number:
+```powershell
+.\build.ps1
+```
+This automatically:
+1. Bumps the patch version number (or you can specify `.\build.ps1 -Version "1.1.0"`).
+2. Updates `modinfo.ini` and `reframework/autorun/WarfarerRevamped.lua`.
+3. Packages the mod into `build/Denarmo's Warfarer Revamped v<version>.zip`.
+4. Deploys directly to Fluffy Mod Manager and the local Dragon's Dogma 2 installation (if detected).
+
+---
+
 ## Structure
 
 ```
 ├── .gitignore
+├── .githooks/
+│   └── pre-commit
+├── build.ps1
+├── build/
+│   └── Denarmo's Warfarer Revamped v1.0.1.zip
 ├── modinfo.ini
 ├── screenshot.png
 ├── README.md

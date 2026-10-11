@@ -1,4 +1,4 @@
---[[
+﻿--[[
   Warfarer's Arsenal 1.1.5 - a weapon / vocation wheel for the Warfarer (Dragon's Dogma 2).
   Needs REFramework (no other plugins).
 
@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.0", 43
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.1", 43
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -4357,10 +4357,10 @@ local function draw_main_ui()
     imgui.text_colored("Configure 6 Skill Slots for Each Vocation (including Dark Arisen DLC skills):", GOLD)
 
     local SLOT_LABELS = {
-      "Slot 1: Left (X / â–¡)",
-      "Slot 2: Top (Y / â–³)",
-      "Slot 3: Bottom (A / âœ•)",
-      "Slot 4: Right (B / â—‹)",
+      "Slot 1: Left (X / Ã¢â€“Â¡)",
+      "Slot 2: Top (Y / Ã¢â€“Â³)",
+      "Slot 3: Bottom (A / Ã¢Å“â€¢)",
+      "Slot 4: Right (B / Ã¢â€”â€¹)",
       "Slot 5: Left Bumper / Modifier 1",
       "Slot 6: Right Bumper / Modifier 2"
     }
@@ -4396,7 +4396,7 @@ local function draw_main_ui()
             imgui.push_id("job_" .. j .. "_preset_" .. pIdx)
             local isCurrentPreset = (pIdx == vp.currentPresetIndex)
             if isCurrentPreset and isActive then
-              imgui.text_colored("â— Active Preset", 0xFF66FF66)
+              imgui.text_colored("Ã¢â€”Â Active Preset", 0xFF66FF66)
             end
 
             local c_pn, n_pn = imgui.input_text("Preset Name", pr.name or ("Preset " .. pIdx))

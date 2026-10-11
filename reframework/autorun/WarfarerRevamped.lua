@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.5", 43
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.6", 44
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -126,6 +126,10 @@ local DEFAULTS = {
   damage_log_include_pawns = true,
   damage_log_show_weakpoint = true,
   damage_log_show_dps = true,
+  damage_log_ultrawide_constrain = true,
+  -- Gameplay Tweaks (Incantation Speed & Fall Damage)
+  incantation_speed_mult = 1.0,
+  no_fall_damage = false,
   vocation_presets = {},
   ico_path = {},                        -- child indices from the icon GUI's root to tex_Job00 (found once, then reused)
   game_bg = true,                       -- the game's own menu background replaces the dark fills of the wheel
@@ -4438,25 +4442,45 @@ function DamageLog.render()
     sw, sh = 1920, 1080
   end
 
+  local bounds_x = 0
+  local bounds_y = 0
+  local bounds_w = sw
+  local bounds_h = sh
+
+  if cfg.damage_log_ultrawide_constrain ~= false then
+    local k = Wide.k()
+    local ox = Wide.ox()
+    if ox and k and k > 0 then
+      bounds_x = ox
+      bounds_y = (Geo.get and Geo.get().y) or 0
+      bounds_w = 1920 * k
+      bounds_h = 1080 * k
+    end
+  end
+
   local w = cfg.damage_log_width or 380
   local lineH = 22
   local headerH = 26
   local pad = 8
   local h = headerH + (#active * lineH) + pad
 
-  local x = cfg.damage_log_offset_x or 35
-  local y = cfg.damage_log_offset_y or 60
+  local offX = cfg.damage_log_offset_x or 35
+  local offY = cfg.damage_log_offset_y or 60
 
   local corner = cfg.damage_log_corner or 1
+  local x, y
   if corner == 2 then -- Top-Left
-    -- x, y as is
+    x = bounds_x + offX
+    y = bounds_y + offY
   elseif corner == 4 then -- Top-Right
-    x = sw - w - x
+    x = bounds_x + bounds_w - w - offX
+    y = bounds_y + offY
   elseif corner == 3 then -- Bottom-Right
-    x = sw - w - x
-    y = sh - h - y
+    x = bounds_x + bounds_w - w - offX
+    y = bounds_y + bounds_h - h - offY
   else -- 1: Bottom-Left
-    y = sh - h - y
+    x = bounds_x + offX
+    y = bounds_y + bounds_h - h - offY
   end
 
   x = math.max(0, math.min(sw - w, x))
@@ -4480,14 +4504,37 @@ function DamageLog.render()
     headerStr = "[Combat Log]  (Preview Mode)"
   end
 
-  local drawn = false
-  if draw and draw.filled_rect and draw.text then
-    pcall(function()
-      draw.filled_rect(x, y, w, h, bgColor)
-      draw.outline_rect(x, y, w, h, borderColor)
-      draw.line(x + 6, y + headerH, x + w - 6, y + headerH, 0x5564A0B4)
-      draw.text(headerStr, x + 10, y + 6, 0xFF8AC0D8)
+  -- Render using ImGui transparent fullscreen overlay window (identical to Warfarer Arsenal wheel)
+  pcall(imgui.set_next_window_pos, v2(0, 0), 1)
+  pcall(imgui.set_next_window_size, v2(sw, sh), 1)
+  local began = pcall(imgui.begin_window, "##WarfarerCombatLogOverlay", nil, OVERLAY_FLAGS)
+  local dl = nil
+  if began then
+    local okd, wdl = pcall(imgui.get_window_draw_list)
+    if okd and wdl then dl = wdl end
+  end
+  if not dl and imgui.get_foreground_draw_list then
+    local okf, fdl = pcall(imgui.get_foreground_draw_list)
+    if okf and fdl then dl = fdl end
+  end
+  if not dl and imgui.get_background_draw_list then
+    local okb, bdl = pcall(imgui.get_background_draw_list)
+    if okb and bdl then dl = bdl end
+  end
 
+  if dl then
+    pcall(function()
+      pcall(function() dl:push_clip_rect_fullscreen() end)
+      dl:add_rect_filled(v2(x, y), v2(x + w, y + h), bgColor, 6.0)
+      dl:add_rect(v2(x, y), v2(x + w, y + h), borderColor, 6.0, 0, 1.5)
+      dl:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
+
+      local fHead = font_for(16)
+      local pushedHead = fHead and pcall(imgui.push_font, fHead)
+      dl:add_text(v2(x + 10, y + 6), 0xFF8AC0D8, headerStr)
+      if pushedHead then pcall(imgui.pop_font) end
+
+      local fLine = font_for(14)
       for idx, entry in ipairs(active) do
         local lineY = y + headerH + 4 + ((idx - 1) * lineH)
         local age = now - entry.time
@@ -4505,61 +4552,26 @@ function DamageLog.render()
           local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
           local lineCol = (aByte << 24) | 0x00FFFFFF
           if entry.isWeakPoint then
-            lineCol = (aByte << 24) | 0x003355FF -- Red/Orange in ABGR
+            lineCol = (aByte << 24) | 0x003355FF
           elseif entry.damage >= 1000 then
-            lineCol = (aByte << 24) | 0x0055D7FF -- Gold
+            lineCol = (aByte << 24) | 0x0055D7FF
           elseif entry.isPawn then
-            lineCol = (aByte << 24) | 0x00FFD0A0 -- Teal/Cyan
+            lineCol = (aByte << 24) | 0x00FFD0A0
           end
-          draw.text(lineText, x + 10, lineY, lineCol)
+
+          local pushedL = fLine and pcall(imgui.push_font, fLine)
+          dl:add_text(v2(x + 10, lineY), lineCol, lineText)
+          if pushedL then pcall(imgui.pop_font) end
         end
       end
-      drawn = true
-      DamageLog.last_rendered_frame = frame
+      pcall(function() dl:pop_clip_rect() end)
     end)
   end
 
-  -- Fallback to ImGui background draw list if draw.* was unavailable or failed
-  if not drawn and imgui and imgui.get_background_draw_list then
-    pcall(function()
-      local dl = imgui.get_background_draw_list()
-      if dl then
-        local p1 = v2(x, y)
-        local p2 = v2(x + w, y + h)
-        dl:add_rect_filled(p1, p2, bgColor, 6.0)
-        dl:add_rect(p1, p2, borderColor, 6.0, 0, 1.5)
-        dl:add_text(v2(x + 10, y + 6), 0xFF8AC0D8, headerStr)
-        dl:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
-
-        for idx, entry in ipairs(active) do
-          local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-          local age = now - entry.time
-          local alphaK = 1.0
-          if age > (duration - 1.0) then
-            alphaK = math.max(0.0, duration - age)
-          end
-          local aByte = math.floor(alphaK * 255)
-          if aByte > 0 then
-            local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-            local dmgStr = format_number(entry.damage)
-            if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-              dmgStr = dmgStr .. " [WEAKPOINT!]"
-            end
-            local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
-            local lineCol = (aByte << 24) | 0x00FFFFFF
-            if entry.isWeakPoint then
-              lineCol = (aByte << 24) | 0x003355FF
-            elseif entry.damage >= 1000 then
-              lineCol = (aByte << 24) | 0x0055D7FF
-            elseif entry.isPawn then
-              lineCol = (aByte << 24) | 0x00FFD0A0
-            end
-            dl:add_text(v2(x + 10, lineY), lineCol, lineText)
-          end
-        end
-      end
-    end)
+  if began then
+    pcall(imgui.end_window)
   end
+  DamageLog.last_rendered_frame = frame
 end
 
 -- Hook into game damage calculation via app.HitController:updateDamage
@@ -4581,13 +4593,77 @@ local function init_damage_hook()
 
     sdk.hook(mUpdate,
       function(args)
-        if not cfg.damage_log_enabled then return end
         curHitCtrl = sdk.to_managed_object(args[2])
         curHitInfo = sdk.to_managed_object(args[3])
         if curHitInfo then
           preDamage = extract_damage(curHitInfo)
         else
           preDamage = 0
+        end
+
+        -- Suppress Fall Damage on Player if enabled
+        if cfg.no_fall_damage and curHitCtrl then
+          local pChar = P.char or (P.human and mcall(P.human, "get_CachedCharacter"))
+          if not pChar then
+            local cm = sdk.get_managed_singleton("app.CharacterManager")
+            if cm then pChar = mcall(cm, "get_ManualPlayer()") end
+          end
+          local targetChara = get_character_from_hit_ctrl(curHitCtrl)
+          local isPlayerTarget = (pChar and targetChara == pChar)
+          if not isPlayerTarget and targetChara then
+            pcall(function() isPlayerTarget = mcall(targetChara, "get_IsPlayer") end)
+          end
+
+          if isPlayerTarget and curHitInfo then
+            local atkObj = nil
+            pcall(function() atkObj = curHitInfo:get_AttackOwnerObject() or curHitInfo:get_field("AttackOwnerObject") end)
+            local atkChara = nil
+            pcall(function() atkChara = curHitInfo:get_AttackOwnerCharacter() or curHitInfo:get_field("AttackOwnerCharacter") end)
+
+            local isFall = false
+            if not atkObj and not atkChara then
+              local td = curHitInfo:get_type_definition()
+              local typeName = td and td:get_full_name() or ""
+              if typeName:find("Fall") or typeName:find("fall") then
+                isFall = true
+              else
+                pcall(function()
+                  local dmgType = tostring(curHitInfo:get_DamageType() or curHitInfo:get_field("DamageType") or "")
+                  local atkType = tostring(curHitInfo:get_AttackType() or curHitInfo:get_field("AttackType") or "")
+                  if dmgType:find("Fall") or atkType:find("Fall") or dmgType:find("fall") or atkType:find("fall") then
+                    isFall = true
+                  end
+                end)
+                if not isFall and pChar then
+                  pcall(function()
+                    local fallCtrl = mcall(pChar, "get_FallController") or (P.human and mcall(P.human, "get_FallController"))
+                    if fallCtrl and (mcall(fallCtrl, "get_IsFall") or mcall(fallCtrl, "get_IsLanding") or mcall(fallCtrl, "isFalling")) then
+                      isFall = true
+                    end
+                  end)
+                end
+              end
+            end
+
+            if isFall then
+              pcall(function()
+                if curHitInfo.set_Damage then curHitInfo:set_Damage(0) end
+                if curHitInfo.set_DamagePoint then curHitInfo:set_DamagePoint(0) end
+                if curHitInfo.Damage then curHitInfo.Damage = 0 end
+              end)
+              curHitInfo = nil
+              curHitCtrl = nil
+              preDamage = 0
+              return sdk.PreHookResult.SKIP_ORIGINAL
+            end
+          end
+        end
+
+        if not cfg.damage_log_enabled then
+          curHitInfo = nil
+          curHitCtrl = nil
+          preDamage = 0
+          return
         end
       end,
       function(retval)
@@ -4755,6 +4831,123 @@ end
 init_damage_hook()
 
 ------------------------------------------------------------------------------------------------
+-- Gameplay Tweaks: Incantation Speed & Fall Damage Disabler
+------------------------------------------------------------------------------------------------
+local gameplay_tweaks_initialized = false
+local function init_gameplay_tweaks()
+  if gameplay_tweaks_initialized then return end
+  local ok, err = pcall(function()
+    gameplay_tweaks_initialized = true
+
+    -- 1. Hook CharacterFallParam / HumanFallParam / FallParam
+    local fallParamTypes = {
+      "app.CharacterFallParam",
+      "app.HumanFallParam",
+      "app.FallParam",
+    }
+    for _, typeName in ipairs(fallParamTypes) do
+      local td = sdk.find_type_definition(typeName)
+      if td then
+        local mMinH = td:get_method("get_MinDamageHeight")
+        if mMinH then
+          sdk.hook(mMinH, function() end, function(retval)
+            if cfg.no_fall_damage then return sdk.float_to_ptr(99999.0) end
+            return retval
+          end)
+        end
+        local mFatalH = td:get_method("get_FatalHeight")
+        if mFatalH then
+          sdk.hook(mFatalH, function() end, function(retval)
+            if cfg.no_fall_damage then return sdk.float_to_ptr(99999.0) end
+            return retval
+          end)
+        end
+        local mDmgRate = td:get_method("get_DamageRate")
+        if mDmgRate then
+          sdk.hook(mDmgRate, function() end, function(retval)
+            if cfg.no_fall_damage then return sdk.float_to_ptr(0.0) end
+            return retval
+          end)
+        end
+        log_act("Gameplay tweaks: hooked fall parameters on " .. typeName)
+      end
+    end
+
+    -- 2. Hook calcFallDamage on fall / damage controllers
+    local fallControllerTypes = {
+      "app.HumanFallDamageController",
+      "app.FallDamageController",
+      "app.HumanDamageController",
+      "app.HumanFallController",
+      "app.FallController",
+    }
+    for _, typeName in ipairs(fallControllerTypes) do
+      local td = sdk.find_type_definition(typeName)
+      if td then
+        for _, methName in ipairs({ "calcFallDamage", "calcDamage", "calcFallDamageRate", "applyFallDamage" }) do
+          local m = td:get_method(methName)
+          if m then
+            sdk.hook(m, function(args)
+              if cfg.no_fall_damage then return sdk.PreHookResult.SKIP_ORIGINAL end
+            end, function(retval)
+              if cfg.no_fall_damage then return sdk.to_ptr(0) end
+              return retval
+            end)
+            log_act("Gameplay tweaks: hooked " .. typeName .. ":" .. methName)
+          end
+        end
+      end
+    end
+
+    -- 3. Hook Incantation / Cast Speed on Magic Controllers and Parameters
+    local magicTypes = {
+      "app.HumanMagicController",
+      "app.CharacterMagicController",
+      "app.MagicController",
+      "app.HumanMagicParameter",
+      "app.MagicParameter",
+      "app.Job03Parameter",
+      "app.Job06Parameter",
+      "app.HumanCharacter",
+      "app.Human",
+    }
+    local speedMethodNames = {
+      "get_CastSpeedRate",
+      "get_ChantSpeedRate",
+      "get_ChantSpeed",
+      "get_CastSpeed",
+      "get_ChantProgressRate",
+      "get_ChantTimeRate",
+      "get_CastSpeedMultiplier",
+    }
+    for _, typeName in ipairs(magicTypes) do
+      local td = sdk.find_type_definition(typeName)
+      if td then
+        for _, methName in ipairs(speedMethodNames) do
+          local m = td:get_method(methName)
+          if m then
+            sdk.hook(m, function() end, function(retval)
+              if cfg.incantation_speed_mult and cfg.incantation_speed_mult > 1.001 then
+                local v = sdk.to_float(retval)
+                if v and v > 0 then
+                  return sdk.float_to_ptr(v * cfg.incantation_speed_mult)
+                end
+              end
+              return retval
+            end)
+            log_act("Gameplay tweaks: hooked incantation speed on " .. typeName .. ":" .. methName)
+          end
+        end
+      end
+    end
+  end)
+  if not ok and err then
+    log_act("init_gameplay_tweaks error: " .. tostring(err))
+  end
+end
+init_gameplay_tweaks()
+
+------------------------------------------------------------------------------------------------
 -- Frame loop and hooks
 ------------------------------------------------------------------------------------------------
 re.on_frame(function()
@@ -4762,6 +4955,9 @@ re.on_frame(function()
   pcall(DamageLog.render)
   if not damage_hook_initialized and frame % 30 == 0 then
     init_damage_hook()
+  end
+  if not gameplay_tweaks_initialized and frame % 30 == 0 then
+    init_gameplay_tweaks()
   end
   pcall(update_menu_equip_rearm)
 
@@ -5221,7 +5417,7 @@ local function draw_main_ui()
   imgui.separator()
   if imgui.tree_node("Combat Damage Log (HUD Chat Overlay)") then
     if imgui.button("Restore Damage Log Defaults##res_sec_dmg") then
-      reset_keys({ "damage_log_enabled", "damage_log_preview", "damage_log_corner", "damage_log_max_lines", "damage_log_duration", "damage_log_width", "damage_log_bg_opacity", "damage_log_offset_x", "damage_log_offset_y", "damage_log_player_only", "damage_log_include_pawns", "damage_log_show_weakpoint", "damage_log_show_dps" })
+      reset_keys({ "damage_log_enabled", "damage_log_preview", "damage_log_corner", "damage_log_max_lines", "damage_log_duration", "damage_log_width", "damage_log_bg_opacity", "damage_log_offset_x", "damage_log_offset_y", "damage_log_player_only", "damage_log_include_pawns", "damage_log_show_weakpoint", "damage_log_show_dps", "damage_log_ultrawide_constrain" })
     end
     imgui.separator()
     ui_check("Enable Combat Damage Log", "damage_log_enabled")
@@ -5229,6 +5425,8 @@ local function draw_main_ui()
       ui_check("Preview Damage Log in HUD (Keeps visible on-screen for positioning)", "damage_log_preview")
       local CORNERS = { "Bottom-Left", "Top-Left", "Bottom-Right", "Top-Right" }
       ui_combo("Screen Corner", "damage_log_corner", CORNERS)
+      ui_check("Constrain to 16:9 HUD Area (Ultrawide displays)", "damage_log_ultrawide_constrain")
+      imgui.text_colored("(Aligns to centered 16:9 HUD area on 21:9 / 32:9 monitors rather than outer screen edge)", 0xFFAAAAAA)
       ui_check("Only Log Player (Warfarer) & Pawn Damage", "damage_log_player_only")
       ui_check("Include Pawn Damage", "damage_log_include_pawns")
       ui_check("Highlight Weakpoint / Critical Hits", "damage_log_show_weakpoint")
@@ -5248,6 +5446,40 @@ local function draw_main_ui()
       imgui.same_line()
       imgui.text_colored("(Sends 3 live test damage entries to test fading)", 0xFFAAAAAA)
     end
+    imgui.tree_pop()
+  end
+
+  --------------------------------------------------------------------------------------------------
+  -- Gameplay Tweaks (Incantation Speed & Fall Damage)
+  --------------------------------------------------------------------------------------------------
+  imgui.separator()
+  if imgui.tree_node("Gameplay Tweaks (Incantation Speed & Fall Damage)") then
+    if imgui.button("Restore Gameplay Defaults##res_sec_gameplay") then
+      reset_keys({ "incantation_speed_mult", "no_fall_damage" })
+    end
+    imgui.separator()
+
+    imgui.text_colored("--- Magic & Spellcasting ---", GOLD)
+    ui_float("Incantation Speed Multiplier", "incantation_speed_mult", 1.0, 5.0, "%.2fx")
+    imgui.text_colored("(Multiplies spell preparation & chant speed for Mage, Sorcerer, and magic vocations. 1.0 = Vanilla)", 0xFFAAAAAA)
+
+    imgui.text("Quick Presets:")
+    imgui.same_line()
+    if imgui.button("1.0x (Normal)##inc_1") then cfg.incantation_speed_mult = 1.0; mark_dirty() end
+    imgui.same_line()
+    if imgui.button("1.5x##inc_15") then cfg.incantation_speed_mult = 1.5; mark_dirty() end
+    imgui.same_line()
+    if imgui.button("2.0x (Fast)##inc_2") then cfg.incantation_speed_mult = 2.0; mark_dirty() end
+    imgui.same_line()
+    if imgui.button("3.0x (Very Fast)##inc_3") then cfg.incantation_speed_mult = 3.0; mark_dirty() end
+    imgui.same_line()
+    if imgui.button("5.0x (Instant)##inc_5") then cfg.incantation_speed_mult = 5.0; mark_dirty() end
+
+    imgui.separator()
+    imgui.text_colored("--- World & Physics ---", GOLD)
+    ui_check("Disable Fall Damage", "no_fall_damage")
+    imgui.text_colored("(Prevents fatal fall thresholds and negates all fall impact damage for the Arisen)", 0xFFAAAAAA)
+
     imgui.tree_pop()
   end
 

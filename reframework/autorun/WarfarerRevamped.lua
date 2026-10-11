@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.4", 43
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.5", 43
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -1104,90 +1104,61 @@ pcall(function()
   end
 end)
 
--- Hook Rearmament requirement checks across game systems to ensure Warfarer weapon loadout
--- editing and switching are never blocked even without Rearmament in the 4 combat slots.
-pcall(function()
-  local skillCtxType = sdk.find_type_definition("app.SkillContext")
-  if skillCtxType then
-    for _, m in ipairs(skillCtxType:get_methods() or {}) do
-      local name = m:get_name()
-      if name == "isEquipCustomSkill" or name == "isEquipSkill" or name == "isEquip" or name == "isEquipped" or name == "hasCustomSkill" or name == "hasSkill" then
-        local target_rearm = false
-        sdk.hook(m, function(args)
-          target_rearm = false
-          local p1 = args[2] and sdk.to_int64(args[2])
-          local p2 = args[3] and sdk.to_int64(args[3])
-          if p1 == REARMAMENT_SKILL_ID or p2 == REARMAMENT_SKILL_ID or p1 == 100 or p2 == 100 then
-            target_rearm = true
-          end
-        end, function(retval)
-          if target_rearm then return sdk.to_ptr(true) end
-          return retval
-        end)
-      elseif name == "getCustomSkillIndex" or name == "getSkillIndex" then
-        local target_rearm = false
-        sdk.hook(m, function(args)
-          target_rearm = false
-          local p1 = args[2] and sdk.to_int64(args[2])
-          local p2 = args[3] and sdk.to_int64(args[3])
-          if p1 == REARMAMENT_SKILL_ID or p2 == REARMAMENT_SKILL_ID or p1 == 100 or p2 == 100 then
-            target_rearm = true
-          end
-        end, function(retval)
-          if target_rearm and retval and sdk.to_int64(retval) < 0 then
-            return sdk.to_ptr(0)
-          end
-          return retval
-        end)
+-- Safe Menu Rearmament Bridge:
+-- When the player is in the Pause Menu / Equipment screen, temporarily equips Rearmament in slot 4
+-- so the game's native equipment UI allows selecting and editing the Warfarer weapon loadout.
+-- When returning to gameplay, immediately restores the 4th class skill for full combat power.
+local MenuEquipState = {
+  active = false,
+  saved_slot3_skill = nil,
+}
+
+local function update_menu_equip_rearm()
+  if not cfg.enabled or not cfg.free_rearmament_slot or P.job ~= 10 then
+    if MenuEquipState.active then
+      local skillCtx = P.human and mcall(P.human, "get_SkillContext()")
+      if skillCtx and MenuEquipState.saved_slot3_skill then
+        local skId = MenuEquipState.saved_slot3_skill
+        pcall(function() skillCtx:setSkill(10, skId, 3) end)
+        local bQ = nil
+        pcall(function() bQ = skillCtx:getEquipList(10) end)
+        if bQ then pcall(function() bQ:setSkill(skId, 3) end) end
       end
+      MenuEquipState.saved_slot3_skill = nil
+      MenuEquipState.active = false
     end
+    return
   end
 
-  local equipDataType = sdk.find_type_definition("app.EquipData")
-  if equipDataType then
-    for _, m in ipairs(equipDataType:get_methods() or {}) do
-      local name = m:get_name()
-      if name:find("ArisenWeapon") or name:find("WeaponSelectable") or name:find("Selectable") then
-        sdk.hook(m, function(args) end, function(retval)
-          if P.job == 10 or P.job == cfg.warfarer_job then
-            return sdk.to_ptr(true)
-          end
-          return retval
-        end)
+  local paused = is_paused()
+  if paused and not MenuEquipState.active then
+    local skillCtx = P.human and mcall(P.human, "get_SkillContext()")
+    if skillCtx then
+      local ok, curSkill = pcall(function() return skillCtx:getSkillID(10, 3) end)
+      if ok and curSkill and curSkill > 0 and curSkill ~= REARMAMENT_SKILL_ID then
+        MenuEquipState.saved_slot3_skill = curSkill
+        pcall(function() skillCtx:setSkill(10, REARMAMENT_SKILL_ID, 3) end)
+        local bQ = nil
+        pcall(function() bQ = skillCtx:getEquipList(10) end)
+        if bQ then pcall(function() bQ:setSkill(REARMAMENT_SKILL_ID, 3) end) end
+        MenuEquipState.active = true
       end
     end
-  end
-
-  local equipListType = sdk.find_type_definition("app.HumanCustomSkillEquipList")
-  if equipListType then
-    for _, m in ipairs(equipListType:get_methods() or {}) do
-      local name = m:get_name()
-      if name:find("isEquip") or name:find("contains") or name:find("has") then
-        local target_rearm = false
-        sdk.hook(m, function(args)
-          target_rearm = false
-          local p1 = args[2] and sdk.to_int64(args[2])
-          if p1 == REARMAMENT_SKILL_ID or p1 == 100 then target_rearm = true end
-        end, function(retval)
-          if target_rearm then return sdk.to_ptr(true) end
-          return retval
-        end)
-      end
+  elseif not paused and MenuEquipState.active then
+    local skillCtx = P.human and mcall(P.human, "get_SkillContext()")
+    if skillCtx and MenuEquipState.saved_slot3_skill then
+      local skId = MenuEquipState.saved_slot3_skill
+      pcall(function() skillCtx:setSkill(10, skId, 3) end)
+      local bQ = nil
+      pcall(function() bQ = skillCtx:getEquipList(10) end)
+      if bQ then pcall(function() bQ:setSkill(skId, 3) end) end
+      local gm = gui_mgr()
+      if gm then pcall(function() gm:call("setupKeyGuideCustomSkill()") end) end
     end
+    MenuEquipState.saved_slot3_skill = nil
+    MenuEquipState.active = false
   end
-
-  local job10Mgr = sdk.find_type_definition("app.Job10WeaponManager")
-  if job10Mgr then
-    for _, m in ipairs(job10Mgr:get_methods() or {}) do
-      local name = m:get_name()
-      if name:find("isEnable") or name:find("isSelectable") or name:find("canEquip") or name:find("isRearm") then
-        sdk.hook(m, function(args) end, function(retval)
-          return sdk.to_ptr(true)
-        end)
-      end
-    end
-  end
-end)
+end
 
 function Track.update()
   local wj = read_weapon_job()
@@ -4792,6 +4763,7 @@ re.on_frame(function()
   if not damage_hook_initialized and frame % 30 == 0 then
     init_damage_hook()
   end
+  pcall(update_menu_equip_rearm)
 
   -- Check Preset Cycle Hotkey
   if cfg.enabled and cfg.skill_swap_enabled and cfg.hotkey_skill_swap and #cfg.hotkey_skill_swap > 0 then

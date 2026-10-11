@@ -1,2 +1,16 @@
+# Archives
 *.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# Logs & temporary files
 *.log
+*.tmp
+re2_framework_log*.txt
+
+# Build scratch
+build_merge.ps1
+scanner*.cs
+validator*.cs

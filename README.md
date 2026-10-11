@@ -1,6 +1,8 @@
 # Denarmo's Warfarer Revamped
 
-[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
+![Denarmo's Warfarer Revamped — Weapon Wheel, Skillsets, and Combat HUD](screenshot.png)
+
+[![Version](https://img.shields.io/badge/version-1.1.6-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
 [![Game](https://img.shields.io/badge/Dragon's%20Dogma%202-Dark%20Arisen%20DLC-orange.svg)](https://www.dragonsdogma.com/)
 [![Framework](https://img.shields.io/badge/REFramework-Compatible-green.svg)](https://github.com/praydog/REFramework)
 [![Mod Manager](https://img.shields.io/badge/Fluffy%20Mod%20Manager-Ready-purple.svg)](https://www.fluffymodmanager.com/)
@@ -59,7 +61,7 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 ## 📦 Installation
 
 ### Option A: Fluffy Mod Manager (Recommended)
-1. Download the latest release package: `Denarmo's Warfarer Revamped v1.1.5.zip` from the [Releases](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases) tab or `build/` folder.
+1. Download the latest release package: `Denarmo's Warfarer Revamped v1.1.6.zip` from the [Releases](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases) tab or `build/` folder.
 2. Drop the `.zip` file directly into your Fluffy Mod Manager mod directory:
    ```
    <Fluffy Mod Manager Path>\Games\DragonsDogma2\Mods\

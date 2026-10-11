@@ -1,4 +1,7 @@
-# Release v1.1.5 — Denarmo's Warfarer Revamped
+# Release v1.1.6 — Denarmo's Warfarer Revamped
+
+- Replaces the old Warfarer's Arsenal cover with Denarmo's Warfarer Revamped branding in Fluffy Mod Manager.
+- Adds the cover subtitle "Weapon Wheel · Skillsets · Combat HUD" while retaining the dark gold visual style and radial weapon wheel.
 
 - Adds saved text-size sliders for the combat chat log (12–40 px) and floating 3D damage numbers (16–72 px).
 - Scales the log header and row spacing with the selected text size. Extends the log width slider to 1200 px.
@@ -14,6 +17,6 @@ The full script compiles with Lua 5.4. Tests cover target-name resolution, size 
 
 ## Package
 
-`Denarmo's Warfarer Revamped v1.1.5.zip`
+`Denarmo's Warfarer Revamped v1.1.6.zip`
 
 Copy the ZIP into Fluffy Mod Manager's `Games\DragonsDogma2\Mods` folder, refresh the mod list, and enable the updated version.

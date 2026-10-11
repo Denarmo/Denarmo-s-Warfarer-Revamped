@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$Version = "",
-    [switch]$NoBump
+    [switch]$NoBump,
+    [switch]$SkipGameDeploy
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,7 +108,12 @@ try {
     Write-Host "Created archive: $zipPath" -ForegroundColor Green
 } finally {
     if (Test-Path $stagingDir) {
-        Remove-Item -Path $stagingDir -Recurse -Force
+        $resolvedStaging = [System.IO.Path]::GetFullPath($stagingDir)
+        $resolvedTemp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/')
+        if ([System.IO.Path]::GetDirectoryName($resolvedStaging) -ne $resolvedTemp) {
+            throw "Refusing to remove staging directory outside the temporary directory: $resolvedStaging"
+        }
+        Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
     }
 }
 
@@ -121,7 +127,7 @@ if (Test-Path $fluffyDir) {
 
 # 8. Also deploy to game reframework directory if present
 $gameLua = "D:\SteamLibrary\steamapps\common\Dragons Dogma 2\reframework\autorun\WarfarerRevamped.lua"
-if (Test-Path (Split-Path $gameLua)) {
+if (-not $SkipGameDeploy -and (Test-Path (Split-Path $gameLua))) {
     Copy-Item -Path $luaFile -Destination $gameLua -Force
     Write-Host "Deployed updated script to game: $gameLua" -ForegroundColor Green
 }

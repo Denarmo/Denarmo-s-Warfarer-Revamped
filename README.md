@@ -1,6 +1,6 @@
 # Denarmo's Warfarer Revamped
 
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
+[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
 [![Game](https://img.shields.io/badge/Dragon's%20Dogma%202-Dark%20Arisen%20DLC-orange.svg)](https://www.dragonsdogma.com/)
 [![Framework](https://img.shields.io/badge/REFramework-Compatible-green.svg)](https://github.com/praydog/REFramework)
 [![Mod Manager](https://img.shields.io/badge/Fluffy%20Mod%20Manager-Ready-purple.svg)](https://www.fluffymodmanager.com/)
@@ -36,6 +36,8 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 - **Custom Screen Corner & Live Preview:** Position the log in any corner of the screen (**Bottom-Left**, **Top-Left**, **Bottom-Right**, or **Top-Right**) with configurable margins, width, and background opacity. Includes a **Live HUD Preview** toggle to easily position the box on your screen.
 - **Combat Stats & DPS:** Real-time encounter DPS calculations, encounter total damage, and smooth alpha fadeout for older hits.
 - **Hit Highlights:** Distinct color coding for standard hits, high-damage hits, Pawn attacks, and weakpoint/critical strikes.
+- **Text Size Controls:** Separate sliders for chat log text (12–40 px) and floating damage numbers (16–72 px), with log spacing that grows with the font size.
+- **Readable Enemy Names:** Uses game display names with a character-ID species-name fallback for damage and reaction entries.
 
 ### 5. Loadout Presets & Combat Cycling
 - **Multiple Presets Per Weapon:** Configure and save distinct skill builds for individual weapons (e.g., Elemental Mage vs. Support Mage, Burst Dagger vs. Counter Dagger).
@@ -57,7 +59,7 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 ## 📦 Installation
 
 ### Option A: Fluffy Mod Manager (Recommended)
-1. Download the latest release package: `Denarmo's Warfarer Revamped v1.0.3.zip` from the [Releases](https://github.com/) tab or `build/` folder.
+1. Download the latest release package: `Denarmo's Warfarer Revamped v1.1.5.zip` from the [Releases](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases) tab or `build/` folder.
 2. Drop the `.zip` file directly into your Fluffy Mod Manager mod directory:
    ```
    <Fluffy Mod Manager Path>\Games\DragonsDogma2\Mods\
@@ -142,6 +144,7 @@ This project stands on the shoulders of the talented Dragon's Dogma 2 modding co
 - **[LeyDWeMvc](https://www.nexusmods.com/dragonsdogma2/mods/1717)** — Original creator of **Warfarer's Arsenal**, whose innovative radial wheel architecture, HUD GUI cloning, and smooth stick steering form the basis of the weapon switching system.
 - **[mue3UufKW](https://www.nexusmods.com/dragonsdogma2/mods/1142)** — Original creator of **Enhanced Warfarer Vocation**, whose dynamic skill swap logic, preset architecture, and stamina toggle laid the groundwork for multi-weapon skillsets.
 - **[praydog](https://github.com/praydog/REFramework)** — For the indispensable **REFramework** tool, runtime IL2CPP API, and hook system.
+- **[xyzkljl1](https://github.com/xyzkljl1/MyDD2Mod)** — Damage Number rendering reference and the enemy character-ID/name data used by the combat log.
 - **[Capcom](https://www.capcom.com/)** — For creating Dragon's Dogma 2 and the Dark Arisen expansion.
 
 ---

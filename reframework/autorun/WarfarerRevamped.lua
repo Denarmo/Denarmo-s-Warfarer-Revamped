@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.9", 47
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.1.0", 47
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -4478,28 +4478,83 @@ pcall(function()
 end)
 refresh_player_caching()
 
+local dmg_font = nil
+local dmg_big_font = nil
+local dmg_log_font = nil
+local fonts_initialized = false
+
+local function ensure_fonts()
+  if fonts_initialized and dmg_font and dmg_log_font then return end
+  fonts_initialized = true
+
+  pcall(function()
+    dmg_font = imgui.load_font("times.ttf", 60)
+  end)
+  if not dmg_font then
+    pcall(function() dmg_font = imgui.load_font("arial.ttf", 60) end)
+  end
+
+  pcall(function()
+    dmg_big_font = imgui.load_font("times.ttf", 85)
+  end)
+  if not dmg_big_font then
+    pcall(function() dmg_big_font = imgui.load_font("arial.ttf", 85) end)
+  end
+
+  pcall(function()
+    dmg_log_font = imgui.load_font("msgothic.ttc", 16, {
+      0x0020, 0x00FF, -- Basic Latin + Latin Supplement
+      0x2000, 0x206F, -- General Punctuation
+      0x3000, 0x30FF, -- CJK Symbols and Punctuations, Hiragana, Katakana
+      0x4E00, 0x9FAF, -- CJK Ideograms
+      0,
+    })
+  end)
+  if not dmg_log_font then
+    pcall(function() dmg_log_font = imgui.load_font("segoeui.ttf", 16) end)
+  end
+  if not dmg_log_font then
+    pcall(function() dmg_log_font = imgui.load_font("arial.ttf", 16) end)
+  end
+end
+pcall(ensure_fonts)
+
+local JP_SKILL_NAMES = {
+  ["ãƒ€ãƒƒã‚·ãƒ¥ å¼±æ”»æ’ƒ"] = "Sprint Light Attack",
+  ["ãƒ€ãƒƒã‚·ãƒ¥ å¼·æ”»æ’ƒ"] = "Sprint Heavy Attack",
+  ["å¼±æ”»æ’ƒ"] = "Light Attack",
+  ["å¼·æ”»æ’ƒ"] = "Heavy Attack",
+  ["ã‚¸ãƒ£ãƒ³ãƒ— å¼±æ”»æ’ƒ"] = "Jump Light Attack",
+  ["ã‚¸ãƒ£ãƒ³ãƒ— å¼·æ”»æ’ƒ"] = "Jump Heavy Attack",
+  ["ã—ãŒã¿ã¤ã å¼±æ”»æ’ƒ"] = "Cling Light Attack",
+  ["ã—ãŒã¿ã¤ã å¼·æ”»æ’ƒ"] = "Cling Heavy Attack",
+  ["è½ä¸‹ æ”»æ’ƒ"] = "Plunging Attack",
+  ["å—ã‘èº«"] = "Breakfall",
+  ["é€šå¸¸æ”»æ’ƒ"] = "Normal Attack",
+  ["çªã"] = "Thrust",
+  ["æ‰•ã„"] = "Sweep",
+  ["å©ãã¤ã‘"] = "Slam",
+  ["æ–¬ã‚Šä¸Šã’"] = "Uppercut",
+  ["å…œå‰²ã‚Š"] = "Helm Splitter",
+}
+
+local function clean_skill_name(n)
+  if not n then return "" end
+  if JP_SKILL_NAMES[n] then return JP_SKILL_NAMES[n] end
+  local cleaned = n:gsub("^CustomSkill_", ""):gsub("^NormalAttack_", ""):gsub("^Action_", ""):gsub("_", " ")
+  if JP_SKILL_NAMES[cleaned] then return JP_SKILL_NAMES[cleaned] end
+  return cleaned
+end
+
+local damageNumbers = {}
+
 local DamageLog = {
   entries = {},
   total_damage = 0,
   recent_damage = 0,
   combat_start_time = 0,
   last_hit_time = 0,
-  d2d_active = false,
-  d2d_last_rendered = 0,
-  last_rendered_frame = 0,
 }
-
-local d2d_font_title = nil
-local d2d_font_line = nil
-local d2d_available = false
-
-local function to_argb(a, r, g, b)
-  local alpha = math.floor(clamp(a or 255, 0, 255))
-  local red = math.floor(clamp(r or 255, 0, 255))
-  local green = math.floor(clamp(g or 255, 0, 255))
-  local blue = math.floor(clamp(b or 255, 0, 255))
-  return (alpha << 24) | (red << 16) | (green << 8) | blue
-end
 
 function DamageLog.add(dmg, target, isWeakPoint, isPawn, skillName, dmgRate)
   local now = os.clock()
@@ -4512,7 +4567,7 @@ function DamageLog.add(dmg, target, isWeakPoint, isPawn, skillName, dmgRate)
   DamageLog.recent_damage = DamageLog.recent_damage + dmg
 
   table.insert(DamageLog.entries, {
-    damage = dmg,
+    damage = math.floor(dmg),
     target = target or "Enemy",
     isWeakPoint = isWeakPoint or false,
     isPawn = isPawn or false,
@@ -4533,7 +4588,7 @@ function DamageLog.add_reaction(target, reaction)
     target = target or "Enemy",
     isWeakPoint = false,
     isPawn = false,
-    reaction = reaction,
+    reaction = reaction or "Stagger",
     time = now,
   })
   while #DamageLog.entries > 30 do
@@ -4543,219 +4598,80 @@ end
 
 function DamageLog.add_floating_number(msg, pos, color, isBig)
   if not pos then return end
-  local fn = {
-    msg = msg,
-    pos = Vector3f.new(pos.x + (math.random(7) - 4) * 0.15, pos.y + (math.random(7) - 4) * 0.15, pos.z),
-    color = color or 0xFFEEEEEE,
-    life = 90,
-    isBig = isBig or false,
+  local pX = pos.x or 0
+  local pY = pos.y or 0
+  local pZ = pos.z or 0
+  if pX == 0 and pY == 0 and pZ == 0 then return end
+
+  local ofx = (math.random(7) - 4) * 0.12
+  local ofy = (math.random(7) - 4) * 0.12
+  local finalColor = color or 0xFFFFFFFF
+
+  local dn = {
+    msg = tostring(msg),
+    pos = Vector3f.new(pX + ofx, pY + ofy, pZ),
+    color = finalColor,
+    baseColor = finalColor,
+    bigfont = isBig or false,
   }
-  table.insert(floatingNumbers, fn)
-  while #floatingNumbers > 40 do
-    table.remove(floatingNumbers, 1)
+  damageNumbers[dn] = 120
+end
+
+local function DrawDamageNumber(damageNumber)
+  if damageNumber.msg ~= nil then
+    pcall(draw.world_text, damageNumber.msg, damageNumber.pos, damageNumber.color)
+  end
+  damageNumbers[damageNumber] = damageNumbers[damageNumber] - 1
+  damageNumber.pos.y = damageNumber.pos.y + 0.016
+  local remaining = damageNumbers[damageNumber]
+  local alpha = math.floor(clamp((remaining / 120) * 255, 0, 255))
+  damageNumber.color = (alpha << 24) | (damageNumber.baseColor & 0x00FFFFFF)
+  if damageNumbers[damageNumber] <= 0 then
+    damageNumbers[damageNumber] = nil
   end
 end
 
 function DamageLog.render_floating()
-  if not cfg.damage_floating_numbers or #floatingNumbers == 0 then return end
-  local i = 1
-  while i <= #floatingNumbers do
-    local fn = floatingNumbers[i]
-    pcall(draw.world_text, fn.msg, fn.pos, fn.color)
-    fn.life = fn.life - 1
-    fn.pos.y = fn.pos.y + 0.018
-    local alpha = math.floor(clamp((fn.life / 90) * 255, 0, 255))
-    fn.color = (alpha << 24) | (fn.color & 0x00FFFFFF)
-    if fn.life <= 0 then
-      table.remove(floatingNumbers, i)
-    else
-      i = i + 1
+  if not cfg.damage_floating_numbers then return end
+  local hasEntries = false
+  for _ in pairs(damageNumbers) do
+    hasEntries = true
+    break
+  end
+  if not hasEntries then return end
+
+  -- Draw normal font numbers
+  local pushed = false
+  if dmg_font then
+    pushed = pcall(imgui.push_font, dmg_font)
+  end
+  for k in pairs(damageNumbers) do
+    if not k.bigfont then
+      DrawDamageNumber(k)
     end
+  end
+  if pushed then
+    pcall(imgui.pop_font)
+  end
+
+  -- Draw big font numbers
+  local pushedBig = false
+  if dmg_big_font then
+    pushedBig = pcall(imgui.push_font, dmg_big_font)
+  end
+  for k in pairs(damageNumbers) do
+    if k.bigfont then
+      DrawDamageNumber(k)
+    end
+  end
+  if pushedBig then
+    pcall(imgui.pop_font)
   end
 end
 
--- Native Direct2D rendering loop (runs every frame in DX12 presentation, whether REFramework menu is open or closed)
-function DamageLog.render_d2d()
+function DamageLog.render_hud()
   if not cfg.damage_log_enabled then return end
   local now = os.clock()
-  local duration = cfg.damage_log_duration or 5.0
-  local maxLines = cfg.damage_log_max_lines or 8
-
-  local active = {}
-  for i = #DamageLog.entries, 1, -1 do
-    local e = DamageLog.entries[i]
-    local age = now - e.time
-    if age < duration then
-      table.insert(active, 1, e)
-      if #active >= maxLines then break end
-    end
-  end
-
-  -- Preview mode: display sample lines if no active hits
-  if cfg.damage_log_preview and #active == 0 then
-    table.insert(active, { damage = 380, target = "Goblin", isWeakPoint = false, isPawn = false, skillName = "Blink Strike", dmgRate = 1.0, time = now })
-    table.insert(active, { damage = 1450, target = "Cyclops", isWeakPoint = true, isPawn = false, skillName = "Arc of Might", dmgRate = 2.2, time = now })
-    table.insert(active, { damage = 0, target = "Cyclops", reaction = "Blown", time = now })
-    if cfg.damage_log_include_pawns then
-      table.insert(active, { damage = 210, target = "Harpy", isWeakPoint = false, isPawn = true, skillName = "High Levin", dmgRate = 1.0, time = now })
-    end
-  end
-
-  if #active == 0 then return end
-
-  -- Screen resolution (with ultrawide 3440x1440 support)
-  local sw, sh = 1920, 1080
-  if d2d and d2d.surface_size then
-    local dsw, dsh = d2d.surface_size()
-    if dsw and dsh and dsw > 0 and dsh > 0 then
-      sw, sh = dsw, dsh
-    end
-  else
-    local scrw, scrh = screen_size()
-    if scrw and scrh and scrw > 0 and scrh > 0 then
-      sw, sh = scrw, scrh
-    end
-  end
-
-  local bounds_x = 0
-  local bounds_y = 0
-  local bounds_w = sw
-  local bounds_h = sh
-
-  -- Ultrawide 16:9 safe frame centering (e.g. 2560x1440 centered on 3440x1440)
-  if cfg.damage_log_ultrawide_constrain ~= false and (sw / sh) > 1.8 then
-    local safe_w = sh * (16.0 / 9.0)
-    bounds_x = (sw - safe_w) * 0.5
-    bounds_w = safe_w
-  end
-
-  local w = cfg.damage_log_width or 420
-  local lineH = 22
-  local headerH = 26
-  local pad = 8
-  local h = headerH + (#active * lineH) + pad
-
-  local offX = cfg.damage_log_offset_x or 35
-  local offY = cfg.damage_log_offset_y or 60
-
-  local corner = cfg.damage_log_corner or 1
-  local x, y
-  if corner == 2 then -- Top-Left
-    x = bounds_x + offX
-    y = bounds_y + offY
-  elseif corner == 4 then -- Top-Right
-    x = bounds_x + bounds_w - w - offX
-    y = bounds_y + offY
-  elseif corner == 3 then -- Bottom-Right
-    x = bounds_x + bounds_w - w - offX
-    y = bounds_y + bounds_h - h - offY
-  else -- 1: Bottom-Left
-    x = bounds_x + offX
-    y = bounds_y + bounds_h - h - offY
-  end
-
-  x = math.max(0, math.min(sw - w, x))
-  y = math.max(0, math.min(sh - h, y))
-
-  local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
-  local bgColor = to_argb(bgAlpha, 18, 18, 22)
-  local borderColor = to_argb(bgAlpha, 214, 178, 98) -- Warfarer Gold
-  local sepColor = to_argb(math.min(180, bgAlpha), 100, 160, 180)
-
-  -- Header text with live DPS
-  local dps = 0
-  local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
-  if (now - DamageLog.last_hit_time) < 8.0 and combatDuration > 0 then
-    dps = math.floor(DamageLog.recent_damage / combatDuration)
-  end
-
-  local headerStr = "[Combat Log]"
-  if cfg.damage_log_show_dps and dps > 0 then
-    headerStr = string.format("[Combat Log]  DPS: %s  Total: %s", format_number(dps), format_number(DamageLog.recent_damage))
-  elseif cfg.damage_log_preview and #DamageLog.entries == 0 then
-    headerStr = "[Combat Log]  (Preview Mode)"
-  end
-
-  -- Background box and gold border
-  if d2d.fill_rounded_rect then
-    d2d.fill_rounded_rect(x, y, w, h, 6.0, 6.0, bgColor)
-  elseif d2d.fill_rect then
-    d2d.fill_rect(x, y, w, h, bgColor)
-  end
-
-  if d2d.rounded_rect then
-    d2d.rounded_rect(x, y, w, h, 6.0, 6.0, 1.5, borderColor)
-  elseif d2d.outline_rect then
-    d2d.outline_rect(x, y, w, h, 1.5, borderColor)
-  end
-
-  if d2d.line then
-    d2d.line(x + 6, y + headerH, x + w - 6, y + headerH, 1.0, sepColor)
-  end
-
-  -- Header text
-  if d2d_font_title and d2d.text then
-    d2d.text(d2d_font_title, headerStr, x + 10, y + 5, to_argb(255, 216, 192, 138))
-  end
-
-  -- Damage lines with smooth fading and color highlights
-  if d2d_font_line and d2d.text then
-    for idx, entry in ipairs(active) do
-      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-      local age = now - entry.time
-      local alphaK = 1.0
-      if age > (duration - 1.0) then
-        alphaK = math.max(0.0, duration - age)
-      end
-      local aByte = math.floor(alphaK * 255)
-      if aByte > 0 then
-        local lineText = ""
-        local lineCol = to_argb(aByte, 255, 255, 255)
-        if entry.reaction then
-          lineText = string.format("%s: [%s]", entry.target, entry.reaction)
-          lineCol = to_argb(aByte, 255, 160, 64)
-        else
-          local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-          if entry.skillName and cfg.damage_log_show_skill_name then
-            tag = tag .. " [" .. entry.skillName .. "]"
-          end
-          local dmgStr = format_number(entry.damage)
-          if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
-            dmgStr = dmgStr .. " (x" .. string.format("%.2f", entry.dmgRate) .. ")"
-          end
-          if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-            dmgStr = dmgStr .. " [WEAKPOINT!]"
-          end
-          lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
-
-          if entry.isWeakPoint then
-            lineCol = to_argb(aByte, 255, 69, 0) -- Fire OrangeRed
-          elseif entry.damage >= 1000 then
-            lineCol = to_argb(aByte, 255, 215, 0) -- Radiant Gold
-          elseif entry.isPawn then
-            lineCol = to_argb(aByte, 160, 208, 255) -- Soft Cyan
-          end
-        end
-
-        d2d.text(d2d_font_line, lineText, x + 10, lineY, lineCol)
-      end
-    end
-  end
-
-  DamageLog.d2d_active = true
-  DamageLog.d2d_last_rendered = os.clock()
-  DamageLog.last_rendered_frame = frame
-end
-
--- Multi-tier rendering loop (runs every frame in re.on_frame, always visible whether REFramework menu is open or closed)
-function DamageLog.render_imgui()
-  if not cfg.damage_log_enabled then return end
-  local now = os.clock()
-  -- If Direct2D is active and actively rendering in this exact session, avoid duplicate overlay
-  if d2d_available and DamageLog.d2d_active and (now - (DamageLog.d2d_last_rendered or 0) < 0.2) then
-    return
-  end
-
   local duration = cfg.damage_log_duration or 5.0
   local maxLines = cfg.damage_log_max_lines or 8
 
@@ -4814,10 +4730,10 @@ function DamageLog.render_imgui()
   y = math.max(0, math.min(sh - h, y))
 
   local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
-  -- ImGui uses ABGR (alpha << 24 | b << 16 | g << 8 | r)
-  local bgColor = (bgAlpha << 24) | (22 << 16) | (18 << 8) | 18
-  local borderColor = (bgAlpha << 24) | (98 << 16) | (178 << 8) | 214 -- Gold
-  local sepColor = (math.min(180, bgAlpha) << 24) | (180 << 16) | (160 << 8) | 100
+  -- ARGB for REFramework draw API: (alpha << 24) | (red << 16) | (green << 8) | blue
+  local bgColor = (bgAlpha << 24) | (18 << 16) | (18 << 8) | 22
+  local borderColor = (bgAlpha << 24) | (214 << 16) | (178 << 8) | 98 -- Gold
+  local sepColor = (math.min(180, bgAlpha) << 24) | (100 << 16) | (160 << 8) | 180
 
   local dps = 0
   local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
@@ -4832,149 +4748,58 @@ function DamageLog.render_imgui()
     headerStr = "[Combat Log]  (Preview Mode)"
   end
 
-  -- Retrieve ImGui DrawList directly without requiring any window to be open
-  local dl = nil
-  if imgui.get_foreground_draw_list then
-    local okf, fdl = pcall(imgui.get_foreground_draw_list)
-    if okf and fdl then dl = fdl end
+  -- Native REFramework backbuffer draw (works in regular gameplay regardless of menu state)
+  pcall(draw.filled_rect, x, y, w, h, bgColor)
+  pcall(draw.outline_rect, x, y, w, h, borderColor)
+  pcall(draw.filled_rect, x + 6, y + headerH, w - 12, 1, sepColor)
+
+  local pushed_font = false
+  if dmg_log_font then
+    pushed_font = pcall(imgui.push_font, dmg_log_font)
   end
-  if not dl and imgui.get_background_draw_list then
-    local okb, bdl = pcall(imgui.get_background_draw_list)
-    if okb and bdl then dl = bdl end
-  end
 
-  local headerCol = 0xFFD8C08A -- Soft Arisen Gold
+  pcall(draw.text, headerStr, x + 10, y + 5, 0xFFD8C08A)
 
-  if dl then
-    pcall(function()
-      dl:add_rect_filled(Vector2f.new(x, y), Vector2f.new(x + w, y + h), bgColor, 6.0)
-      dl:add_rect(Vector2f.new(x, y), Vector2f.new(x + w, y + h), borderColor, 6.0, 0, 1.5)
-      dl:add_line(Vector2f.new(x + 6, y + headerH), Vector2f.new(x + w - 6, y + headerH), sepColor, 1.0)
-      dl:add_text(Vector2f.new(x + 10, y + 5), headerCol, headerStr)
+  for idx, entry in ipairs(active) do
+    local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+    local age = now - entry.time
+    local alphaK = 1.0
+    if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
+    local aByte = math.floor(alphaK * 255)
+    local lineCol = (aByte << 24) | (230 << 16) | (230 << 8) | 230
+    local lineText = ""
 
-      for idx, entry in ipairs(active) do
-        local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-        local age = now - entry.time
-        local alphaK = 1.0
-        if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
-        local aByte = math.floor(alphaK * 255)
-        if aByte > 0 then
-          local lineText = ""
-          local lineCol = (aByte << 24) | 0x00FFFFFF
-          if entry.reaction then
-            lineText = string.format("%s: [%s]", entry.target, entry.reaction)
-            lineCol = (aByte << 24) | (64 << 16) | (160 << 8) | 255
-          else
-            local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-            if entry.skillName and cfg.damage_log_show_skill_name then
-              tag = tag .. " [" .. entry.skillName .. "]"
-            end
-            local dmgStr = format_number(entry.damage)
-            if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
-              dmgStr = dmgStr .. " (x" .. string.format("%.2f", entry.dmgRate) .. ")"
-            end
-            if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-              dmgStr = dmgStr .. " [WEAKPOINT!]"
-            end
-            lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
-
-            if entry.isWeakPoint then
-              lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
-            elseif entry.damage >= 1000 then
-              lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
-            elseif entry.isPawn then
-              lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160
-            end
-          end
-
-          dl:add_text(Vector2f.new(x + 10, lineY), lineCol, lineText)
-        end
+    if entry.reaction then
+      lineText = string.format("Stagger: %s [%s]", entry.target, entry.reaction)
+      lineCol = (aByte << 24) | (255 << 16) | (160 << 8) | 64
+    else
+      local sourceStr = entry.isPawn and "Pawn" or "Arisen"
+      lineText = string.format("%s -> %s: %s", sourceStr, entry.target, format_number(entry.damage))
+      if entry.skillName and cfg.damage_log_show_skill_name then
+        lineText = lineText .. string.format(" [%s]", clean_skill_name(entry.skillName))
       end
-    end)
-  else
-    -- Fallback to native REFramework draw functions if draw list is unavailable
-    pcall(draw.filled_rect, x, y, w, h, bgColor)
-    pcall(draw.outline_rect, x, y, w, h, borderColor)
-    pcall(draw.line, x + 6, y + headerH, x + w - 6, y + headerH, sepColor)
-    pcall(draw.text, headerStr, x + 10, y + 5, headerCol)
-    for idx, entry in ipairs(active) do
-      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
-      local age = now - entry.time
-      local alphaK = 1.0
-      if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
-      local aByte = math.floor(alphaK * 255)
-      if aByte > 0 then
-        local lineText = ""
-        local lineCol = (aByte << 24) | 0x00FFFFFF
-        if entry.reaction then
-          lineText = string.format("%s: [%s]", entry.target, entry.reaction)
-          lineCol = (aByte << 24) | (64 << 16) | (160 << 8) | 255
-        else
-          local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
-          if entry.skillName and cfg.damage_log_show_skill_name then
-            tag = tag .. " [" .. entry.skillName .. "]"
-          end
-          local dmgStr = format_number(entry.damage)
-          if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
-            dmgStr = dmgStr .. " (x" .. string.format("%.2f", entry.dmgRate) .. ")"
-          end
-          if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
-            dmgStr = dmgStr .. " [WEAKPOINT!]"
-          end
-          lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
-
-          if entry.isWeakPoint then
-            lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
-          elseif entry.damage >= 1000 then
-            lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
-          elseif entry.isPawn then
-            lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160
-          end
-        end
-        pcall(draw.text, lineText, x + 10, lineY, lineCol)
+      if entry.dmgRate and entry.dmgRate > 1.05 and cfg.damage_log_show_multiplier then
+        lineText = lineText .. string.format(" (x%.2f)", entry.dmgRate)
+      end
+      if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+        lineText = lineText .. " [WEAKPOINT]"
+        lineCol = (aByte << 24) | (255 << 16) | (80 << 8) | 32
+      elseif entry.isPawn then
+        lineCol = (aByte << 24) | (160 << 16) | (208 << 8) | 255
       end
     end
+    pcall(draw.text, lineText, x + 10, lineY, lineCol)
   end
 
-  DamageLog.last_rendered_frame = frame
+  if pushed_font then
+    pcall(imgui.pop_font)
+  end
 end
 
--- Backward compatibility alias
 function DamageLog.render()
   pcall(DamageLog.render_floating)
-  if not cfg.damage_log_enabled then return end
-  local now = os.clock()
-  if d2d_available and DamageLog.d2d_active and (now - (DamageLog.d2d_last_rendered or 0) < 0.2) then
-    return
-  end
-  DamageLog.render_imgui()
+  pcall(DamageLog.render_hud)
 end
-
--- Register Direct2D Hardware Drawing Loop
-local function setup_d2d()
-  if d2d_available then return end
-  if not d2d or not d2d.register then return end
-  pcall(function()
-    d2d.register(
-      function()
-        pcall(function()
-          pcall(function() d2d_font_title = d2d.Font.new("Arial", 15) end)
-          if not d2d_font_title then pcall(function() d2d_font_title = d2d.Font.new("Tahoma", 15) end) end
-          pcall(function() d2d_font_line = d2d.Font.new("Arial", 13) end)
-          if not d2d_font_line then pcall(function() d2d_font_line = d2d.Font.new("Tahoma", 13) end) end
-          d2d_available = true
-          log_act("Combat Damage Log: Direct2D registered with native fonts")
-        end)
-      end,
-      function()
-        pcall(function()
-          DamageLog.render_d2d()
-        end)
-      end
-    )
-  end)
-end
-pcall(setup_d2d)
 
 -- Hook into game damage calculation via app.HitController:updateDamage (based on Nexus mod 148: Damage Number by xyzkljl1)
 local tmpUpdateDamageHitController = nil
@@ -5040,7 +4865,7 @@ local function init_damage_hook()
           local isPlayerAttackHit = false
           if mainplayerGO and owner_gameobj == mainplayerGO then
             isPlayerAttackHit = true
-          elseif P.go and owner_gameobj == P.go then
+          elseif P.player_go and owner_gameobj == P.player_go then
             isPlayerAttackHit = true
           elseif is_player_entity(owner_gameobj) then
             isPlayerAttackHit = true
@@ -5104,13 +4929,13 @@ local function init_damage_hook()
             if isWeak and cfg.damage_log_show_weakpoint then
               numText = numText .. "!"
             end
-            local numCol = 0xFFEEEEEE
+            local numCol = 0xFFFFFFFF
             if isWeak then
-              numCol = 0xFF2050FF -- Fire OrangeRed
+              numCol = 0xFFFF3020 -- Bright OrangeRed
             elseif dmg >= 1000 then
-              numCol = 0xFF00D7FF -- Radiant Gold
+              numCol = 0xFFFFD700 -- Radiant Gold
             elseif isPawn then
-              numCol = 0xFFFFD0A0 -- Soft Cyan
+              numCol = 0xFF60D0FF -- Sky Blue
             end
             DamageLog.add_floating_number(numText, hitPos, numCol, dmg >= 1000)
           end

@@ -27,7 +27,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.7", 45
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.8", 46
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -4627,13 +4627,19 @@ function DamageLog.render_d2d()
   end
 
   DamageLog.d2d_active = true
+  DamageLog.d2d_last_rendered = os.clock()
   DamageLog.last_rendered_frame = frame
 end
 
--- ImGui Fallback (used when D2DX plugin is not installed or when previewing inside REFramework menu)
+-- Multi-tier rendering loop (runs every frame in re.on_frame, always visible whether REFramework menu is open or closed)
 function DamageLog.render_imgui()
-  if not cfg.damage_log_enabled or d2d_available then return end
+  if not cfg.damage_log_enabled then return end
   local now = os.clock()
+  -- If Direct2D is active and actively rendering in this exact session, avoid duplicate overlay
+  if d2d_available and DamageLog.d2d_active and (now - (DamageLog.d2d_last_rendered or 0) < 0.2) then
+    return
+  end
+
   local duration = cfg.damage_log_duration or 5.0
   local maxLines = cfg.damage_log_max_lines or 8
 
@@ -4691,8 +4697,10 @@ function DamageLog.render_imgui()
   y = math.max(0, math.min(sh - h, y))
 
   local bgAlpha = math.floor(clamp(cfg.damage_log_bg_opacity or 0.70, 0.0, 1.0) * 255)
-  local bgColor = (bgAlpha << 24) | 0x00121216
-  local borderColor = (bgAlpha << 24) | 0x0062B2D6
+  -- ImGui uses ABGR (alpha << 24 | b << 16 | g << 8 | r)
+  local bgColor = (bgAlpha << 24) | (22 << 16) | (18 << 8) | 18
+  local borderColor = (bgAlpha << 24) | (98 << 16) | (178 << 8) | 214 -- Gold
+  local sepColor = (math.min(180, bgAlpha) << 24) | (180 << 16) | (160 << 8) | 100
 
   local dps = 0
   local combatDuration = math.max(1.0, now - DamageLog.combat_start_time)
@@ -4707,32 +4715,26 @@ function DamageLog.render_imgui()
     headerStr = "[Combat Log]  (Preview Mode)"
   end
 
-  pcall(imgui.set_next_window_pos, v2(0, 0), 1)
-  pcall(imgui.set_next_window_size, v2(sw, sh), 1)
-  local began = pcall(imgui.begin_window, "##WarfarerCombatLogOverlay", nil, OVERLAY_FLAGS)
+  -- Retrieve ImGui DrawList directly without requiring any window to be open
   local dl = nil
-  if began then
-    local okd, wdl = pcall(imgui.get_window_draw_list)
-    if okd and wdl then dl = wdl end
-  end
-  if not dl and imgui.get_foreground_draw_list then
+  if imgui.get_foreground_draw_list then
     local okf, fdl = pcall(imgui.get_foreground_draw_list)
     if okf and fdl then dl = fdl end
   end
+  if not dl and imgui.get_background_draw_list then
+    local okb, bdl = pcall(imgui.get_background_draw_list)
+    if okb and bdl then dl = bdl end
+  end
+
+  local headerCol = 0xFFD8C08A -- Soft Arisen Gold
 
   if dl then
     pcall(function()
-      pcall(function() dl:push_clip_rect_fullscreen() end)
-      dl:add_rect_filled(v2(x, y), v2(x + w, y + h), bgColor, 6.0)
-      dl:add_rect(v2(x, y), v2(x + w, y + h), borderColor, 6.0, 0, 1.5)
-      dl:add_line(v2(x + 6, y + headerH), v2(x + w - 6, y + headerH), 0x5564A0B4, 1.0)
+      dl:add_rect_filled(Vector2f.new(x, y), Vector2f.new(x + w, y + h), bgColor, 6.0)
+      dl:add_rect(Vector2f.new(x, y), Vector2f.new(x + w, y + h), borderColor, 6.0, 0, 1.5)
+      dl:add_line(Vector2f.new(x + 6, y + headerH), Vector2f.new(x + w - 6, y + headerH), sepColor, 1.0)
+      dl:add_text(Vector2f.new(x + 10, y + 5), headerCol, headerStr)
 
-      local fHead = font_for(16)
-      local pushedHead = fHead and pcall(imgui.push_font, fHead)
-      dl:add_text(v2(x + 10, y + 6), 0xFF8AC0D8, headerStr)
-      if pushedHead then pcall(imgui.pop_font) end
-
-      local fLine = font_for(14)
       for idx, entry in ipairs(active) do
         local lineY = y + headerH + 4 + ((idx - 1) * lineH)
         local age = now - entry.time
@@ -4747,30 +4749,53 @@ function DamageLog.render_imgui()
           end
           local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
           local lineCol = (aByte << 24) | 0x00FFFFFF
-          if entry.isWeakPoint then lineCol = (aByte << 24) | 0x003355FF
-          elseif entry.damage >= 1000 then lineCol = (aByte << 24) | 0x0055D7FF
-          elseif entry.isPawn then lineCol = (aByte << 24) | 0x00FFD0A0 end
+          if entry.isWeakPoint then lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
+          elseif entry.damage >= 1000 then lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
+          elseif entry.isPawn then lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160 end
 
-          local pushedL = fLine and pcall(imgui.push_font, fLine)
-          dl:add_text(v2(x + 10, lineY), lineCol, lineText)
-          if pushedL then pcall(imgui.pop_font) end
+          dl:add_text(Vector2f.new(x + 10, lineY), lineCol, lineText)
         end
       end
-      pcall(function() dl:pop_clip_rect() end)
     end)
+  else
+    -- Fallback to native REFramework draw functions if draw list is unavailable
+    pcall(draw.filled_rect, x, y, w, h, bgColor)
+    pcall(draw.outline_rect, x, y, w, h, borderColor)
+    pcall(draw.line, x + 6, y + headerH, x + w - 6, y + headerH, sepColor)
+    pcall(draw.text, headerStr, x + 10, y + 5, headerCol)
+    for idx, entry in ipairs(active) do
+      local lineY = y + headerH + 4 + ((idx - 1) * lineH)
+      local age = now - entry.time
+      local alphaK = 1.0
+      if age > (duration - 1.0) then alphaK = math.max(0.0, duration - age) end
+      local aByte = math.floor(alphaK * 255)
+      if aByte > 0 then
+        local tag = entry.isPawn and "[Pawn]" or "[Warfarer]"
+        local dmgStr = format_number(entry.damage)
+        if entry.isWeakPoint and cfg.damage_log_show_weakpoint then
+          dmgStr = dmgStr .. " [WEAKPOINT!]"
+        end
+        local lineText = string.format("%s -> %s: %s", tag, entry.target, dmgStr)
+        local lineCol = (aByte << 24) | 0x00FFFFFF
+        if entry.isWeakPoint then lineCol = (aByte << 24) | (0 << 16) | (69 << 8) | 255
+        elseif entry.damage >= 1000 then lineCol = (aByte << 24) | (0 << 16) | (215 << 8) | 255
+        elseif entry.isPawn then lineCol = (aByte << 24) | (255 << 16) | (208 << 8) | 160 end
+        pcall(draw.text, lineText, x + 10, lineY, lineCol)
+      end
+    end
   end
 
-  if began then pcall(imgui.end_window) end
   DamageLog.last_rendered_frame = frame
 end
 
 -- Backward compatibility alias
 function DamageLog.render()
-  if d2d_available then
-    DamageLog.render_d2d()
-  else
-    DamageLog.render_imgui()
+  if not cfg.damage_log_enabled then return end
+  local now = os.clock()
+  if d2d_available and DamageLog.d2d_active and (now - (DamageLog.d2d_last_rendered or 0) < 0.2) then
+    return
   end
+  DamageLog.render_imgui()
 end
 
 -- Register Direct2D Hardware Drawing Loop
@@ -4818,67 +4843,18 @@ local function init_damage_hook()
 
     sdk.hook(mUpdate,
       function(args)
-        curHitCtrl = sdk.to_managed_object(args[2])
-        curHitInfo = sdk.to_managed_object(args[3])
-        if not curHitCtrl or not curHitInfo then return end
-
-        preDamage = extract_damage(curHitInfo)
-
-        -- Fall Damage Suppression for Arisen
-        if cfg.no_fall_damage then
-          local targetChara = get_character_from_hit_ctrl(curHitCtrl)
-          if is_player_entity(targetChara) then
-            -- Attacker resolution
-            local atkObj = nil
-            pcall(function() atkObj = curHitInfo:get_AttackOwnerObject() or curHitInfo:get_field("AttackOwnerObject") end)
-            local atkChara = nil
-            pcall(function() atkChara = curHitInfo:get_AttackOwnerCharacter() or curHitInfo:get_field("AttackOwnerCharacter") end)
-
-            local isEnemyAttack = false
-            if atkChara and not is_player_entity(atkChara) and not is_pawn_entity(atkChara) then
-              isEnemyAttack = true
-            end
-            if not isEnemyAttack and atkObj and not is_player_entity(atkObj) and not is_pawn_entity(atkObj) then
-              local okC, comp = pcall(function() return atkObj:get_Component(sdk.typeof("app.Character")) end)
-              if okC and comp and not is_player_entity(comp) and not is_pawn_entity(comp) then
-                isEnemyAttack = true
-              end
-            end
-
-            -- If NOT an enemy attacking, it is fall / gravity / self / world hazard
-            if not isEnemyAttack then
-              pcall(function()
-                if curHitInfo.set_Damage then curHitInfo:set_Damage(0) end
-                if curHitInfo.set_DamagePoint then curHitInfo:set_DamagePoint(0) end
-                if curHitInfo.set_LossDamage then curHitInfo:set_LossDamage(0) end
-                if curHitInfo.Damage then curHitInfo.Damage = 0 end
-                if curHitInfo.DamagePoint then curHitInfo.DamagePoint = 0 end
-                if curHitInfo.LossDamage then curHitInfo.LossDamage = 0 end
-                local td = curHitInfo:get_type_definition()
-                if td then
-                  local fD = td:get_field("Damage")
-                  if fD then fD:set_data(curHitInfo, 0) end
-                  local fDP = td:get_field("DamagePoint")
-                  if fDP then fDP:set_data(curHitInfo, 0) end
-                  local fLD = td:get_field("LossDamage")
-                  if fLD then fLD:set_data(curHitInfo, 0) end
-                end
-              end)
-              log_act("Fall / impact damage prevented on Arisen!")
-              curHitCtrl = nil
-              curHitInfo = nil
-              preDamage = 0
-              return sdk.PreHookResult.SKIP_ORIGINAL
-            end
-          end
-        end
-
         if not cfg.damage_log_enabled then
           curHitInfo = nil
           curHitCtrl = nil
           preDamage = 0
           return
         end
+
+        curHitCtrl = sdk.to_managed_object(args[2])
+        curHitInfo = sdk.to_managed_object(args[3])
+        if not curHitCtrl or not curHitInfo then return end
+
+        preDamage = extract_damage(curHitInfo)
       end,
       function(retval)
         if not cfg.damage_log_enabled or not curHitInfo or not curHitCtrl then
@@ -4973,105 +4949,120 @@ local function init_gameplay_tweaks()
   local ok, err = pcall(function()
     gameplay_tweaks_initialized = true
 
-    local candidateTypes = {
-      -- Fall & Damage candidates
-      "app.Human",
-      "app.Character",
-      "app.HumanCharacter",
-      "app.HumanFallParam",
-      "app.CharacterFallParam",
-      "app.FallParam",
-      "app.HumanFallController",
-      "app.CharacterFallController",
-      "app.FallController",
-      "app.HumanDamageController",
-      "app.CharacterDamageController",
-      "app.DamageController",
-      "app.HumanFallDamageController",
-      "app.FallDamageController",
-      "app.HumanDamageParam",
-      "app.DamageParam",
-      "app.HumanStatus",
-      "app.CharacterStatus",
-      "app.HumanActionController",
-      "app.HumanPhysicsController",
-      "app.HumanPhysics",
-      "app.LossGaugeController",
-      "app.HumanLossGaugeController",
-      -- Magic & Incantation candidates
-      "app.HumanMagicController",
-      "app.CharacterMagicController",
-      "app.MagicController",
-      "app.HumanMagicParameter",
-      "app.MagicParameter",
+    -- Dedicated Fall Damage & Fall Death hooks (Surgically hook only fall methods so combat damage is 100% normal)
+    local hook_fall_method = function(type_name, method_name, is_void_skip, is_height, is_bool_false)
+      local td = sdk.find_type_definition(type_name)
+      if not td then return end
+      local m = td:get_method(method_name)
+      if not m then return end
+      log_act("Hooking fall method: " .. type_name .. ":" .. method_name)
+      pcall(function()
+        if is_void_skip then
+          sdk.hook(m, function(args)
+            if cfg.no_fall_damage then
+              local thisObj = sdk.to_managed_object(args[2])
+              if not thisObj or is_player_entity(thisObj) then
+                return sdk.PreHookResult.SKIP_ORIGINAL
+              end
+            end
+          end, nil)
+        elseif is_height then
+          sdk.hook(m, nil, function(retval)
+            if cfg.no_fall_damage then
+              return sdk.float_to_ptr(999999.0)
+            end
+            return retval
+          end)
+        elseif is_bool_false then
+          sdk.hook(m, nil, function(retval)
+            if cfg.no_fall_damage then
+              return sdk.to_ptr(0)
+            end
+            return retval
+          end)
+        end
+      end)
+    end
+
+    -- Landing damage handlers (skip original execution on player so fall impacts deal 0 damage & no loss gauge)
+    hook_fall_method("app.Human", "Chara_DamageFromFallHandler", true, false, false)
+    hook_fall_method("app.Character", "callDamageFromFallHandlerIfNeeded", true, false, false)
+    hook_fall_method("app.Character", "requestFallDead", true, false, false)
+    hook_fall_method("app.Character", "set_IsArisenFallDead", true, false, false)
+    hook_fall_method("app.Character", "set_IsFallDead", true, false, false)
+    hook_fall_method("app.Character", "set_IsDamageFall", true, false, false)
+    hook_fall_method("app.Human", "set_IsDamageFromFall", true, false, false)
+
+    -- Fall height thresholds (override to 999,999m so fall height is never considered lethal or damaging)
+    hook_fall_method("app.Character", "get_HeightDamageFromFallProp", false, true, false)
+    hook_fall_method("app.Character", "get_HeightDieFromFallProp", false, true, false)
+
+    -- Fall status & boolean queries (return false so player never enters fall-damaged / fall-dead state)
+    hook_fall_method("app.Character", "get_IsArisenFallDead", false, false, true)
+    hook_fall_method("app.Character", "get_IsFallDead", false, false, true)
+    hook_fall_method("app.Character", "get_IsDamageFall", false, false, true)
+    hook_fall_method("app.Character", "get_IsDamageFallAction", false, false, true)
+    hook_fall_method("app.Human", "get_IsDamageFallHeight", false, false, true)
+    hook_fall_method("app.Human", "get_IsDamageFromFall", false, false, true)
+
+    -- Dedicated Magic Incantation Speed hooks
+    local hook_spell_speed = function(type_name, method_name, is_time)
+      local td = sdk.find_type_definition(type_name)
+      if not td then return end
+      local m = td:get_method(method_name)
+      if not m then return end
+      log_act("Hooking spellcasting method: " .. type_name .. ":" .. method_name)
+      pcall(function()
+        sdk.hook(m, nil, function(retval)
+          if cfg.incantation_speed_mult and cfg.incantation_speed_mult > 1.001 then
+            local v = sdk.to_float(retval)
+            if v and v > 0 then
+              if is_time then
+                return sdk.float_to_ptr(v / cfg.incantation_speed_mult)
+              else
+                return sdk.float_to_ptr(v * cfg.incantation_speed_mult)
+              end
+            end
+          end
+          return retval
+        end)
+      end)
+    end
+
+    hook_spell_speed("app.Job06Parameter", "getPrepareSpellTime", true)
+    hook_spell_speed("app.Job03Parameter", "get_AddRateForPreparingSpellWhileWalkingProp", false)
+    hook_spell_speed("app.Job03Parameter", "get_AddRateForPreparingSpellWhileRunningProp", false)
+    hook_spell_speed("app.Job03Parameter", "get_AddRateForPreparingSpellWhileLevitatingProp", false)
+    hook_spell_speed("app.Job03Parameter", "get_AddRateForPreparingSpellWhileConcentrateProp", false)
+
+    -- Dynamic scanner for additional chant / spell preparation rates
+    local spellTypes = {
       "app.Job03Parameter",
       "app.Job06Parameter",
       "app.Job07Parameter",
       "app.Job08Parameter",
-      "app.JobMagicParameter",
-      "app.ChantController",
-      "app.HumanChantController",
-      "app.MagicSkillController",
-      "app.HumanMagicSkillController",
+      "app.JobPrepareSpell",
+      "app.Job03PrepareSpell",
+      "app.Job06PrepareSpell",
+      "app.JobMagicUserPrepareSpell",
+      "app.HumanConcentratePrepareSpell",
+      "app.JobMagicUserActionContext.PrepareSpellInformation",
     }
-
-    for _, typeName in ipairs(candidateTypes) do
+    for _, typeName in ipairs(spellTypes) do
       local td = sdk.find_type_definition(typeName)
       if td then
-        log_act("Gameplay tweaks: discovered type " .. typeName)
         local methods = td:get_methods()
         if methods then
           for _, m in ipairs(methods) do
             local mName = m:get_name()
             local mLower = mName:lower()
-
-            -- Fall damage & fatal fall hooks
-            if mLower:find("fall") and (mLower:find("damage") or mLower:find("fatal") or mLower:find("dead") or mLower:find("kill") or mLower:find("rate") or mLower:find("height")) then
-              log_act("Hooking fall method: " .. typeName .. ":" .. mName)
-              pcall(function()
-                sdk.hook(m,
-                  function(args)
-                    if cfg.no_fall_damage then
-                      local retType = m:get_return_type()
-                      local retName = retType and retType:get_full_name() or ""
-                      if retName == "System.Void" then
-                        return sdk.PreHookResult.SKIP_ORIGINAL
-                      end
-                    end
-                  end,
-                  function(retval)
-                    if cfg.no_fall_damage then
-                      local retType = m:get_return_type()
-                      local retName = retType and retType:get_full_name() or ""
-                      if retName == "System.Single" or retName == "System.Double" then
-                        if mLower:find("height") then
-                          return sdk.float_to_ptr(99999.0)
-                        else
-                          return sdk.float_to_ptr(0.0)
-                        end
-                      elseif retName == "System.Int32" or retName == "System.Int64" or retName == "System.UInt32" or retName == "System.UInt64" then
-                        return sdk.to_ptr(0)
-                      elseif retName == "System.Boolean" then
-                        if mLower:find("fatal") or mLower:find("damage") or mLower:find("dead") then
-                          return sdk.to_ptr(0)
-                        end
-                      end
-                    end
-                    return retval
-                  end
-                )
-              end)
-            end
-
-            -- Incantation / cast speed hooks
-            if (mLower:find("cast") or mLower:find("chant") or mLower:find("magic") or mLower:find("incant") or mLower:find("spell")) and (mLower:find("speed") or mLower:find("time") or mLower:find("rate") or mLower:find("progress")) then
-              log_act("Hooking spellcasting method: " .. typeName .. ":" .. mName)
-              pcall(function()
-                sdk.hook(m, function() end, function(retval)
-                  if cfg.incantation_speed_mult and cfg.incantation_speed_mult > 1.001 then
-                    local retType = m:get_return_type()
-                    local retName = retType and retType:get_full_name() or ""
-                    if retName == "System.Single" or retName == "System.Double" then
+            if (mLower:find("chant") or mLower:find("magic") or mLower:find("spell")) and (mLower:find("speed") or mLower:find("time") or mLower:find("rate")) then
+              local retType = m:get_return_type()
+              local retName = retType and retType:get_full_name() or ""
+              if retName == "System.Single" or retName == "System.Double" then
+                pcall(function()
+                  sdk.hook(m, nil, function(retval)
+                    if cfg.incantation_speed_mult and cfg.incantation_speed_mult > 1.001 then
                       local v = sdk.to_float(retval)
                       if v and v > 0 then
                         if mLower:find("time") then
@@ -5081,10 +5072,10 @@ local function init_gameplay_tweaks()
                         end
                       end
                     end
-                  end
-                  return retval
+                    return retval
+                  end)
                 end)
-              end)
+              end
             end
           end
         end
@@ -5103,6 +5094,9 @@ init_gameplay_tweaks()
 re.on_frame(function()
   -- Render combat damage log safely
   pcall(DamageLog.render)
+  if not d2d_available and d2d and d2d.register and frame % 60 == 0 then
+    pcall(setup_d2d)
+  end
   if not damage_hook_initialized and frame % 30 == 0 then
     init_damage_hook()
   end

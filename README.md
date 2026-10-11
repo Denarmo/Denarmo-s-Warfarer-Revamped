@@ -1,6 +1,6 @@
 # Denarmo's Warfarer Revamped
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
 [![Game](https://img.shields.io/badge/Dragon's%20Dogma%202-Dark%20Arisen%20DLC-orange.svg)](https://www.dragonsdogma.com/)
 [![Framework](https://img.shields.io/badge/REFramework-Compatible-green.svg)](https://github.com/praydog/REFramework)
 [![Mod Manager](https://img.shields.io/badge/Fluffy%20Mod%20Manager-Ready-purple.svg)](https://www.fluffymodmanager.com/)
@@ -21,17 +21,28 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 - **Dual Steering Support:** Navigate the wheel effortlessly with either your controller analog stick or mouse pointer, with configurable deadzones and sensitivity.
 - **Fast Indexed Weapon Switching:** Direct equip routines bypass inventory menus for seamless, fluid combos.
 
-### 2. Dynamic Weapon Skillsets (Expanded to 6 Skill Slots)
+### 2. Auto-Load Guild Class Skills (Seamless Vocation Switching)
+- **Zero Config Required:** Set your desired skills at any Vocation Guild or Inn for each individual class (Fighter, Archer, Mage, etc.). When playing as Warfarer, swapping to any weapon automatically equips that class's guild skills!
+- **Rearmament Not Required:** Because weapon switching is handled directly by the radial wheel and equip engine, **Rearmament is no longer required to take up a custom skill slot**. All 4 (or 6) slots are 100% available for combat skills.
+- **Unlock Any Skill:** Unlock all weapon skills directly through the REFramework preset menu—even skills you have not yet purchased or learned at the guild are immediately available for use.
+
+### 3. Dynamic Weapon Skillsets (Expanded to 6 Skill Slots)
 - **Automatic Palette Swapping:** Automatically replaces your active custom skill palette the moment a weapon is equipped or switched.
 - **Full 6-Skill Support:** Extends beyond the default 4-skill limitation to support all 6 custom skill slots (Diamond face buttons + Slots 5 & 6) used by extended skill frameworks and modern overhauls.
 - **Dark Arisen DLC Native Compatibility:** Comprehensive support for all new Dark Arisen expansion abilities, including CS13, CS14, CS15 skill tiers, and Obelisk abilities across all vocations (Fighter, Archer, Mage, Thief, Warrior, Sorcerer, Mystic Spearhand, Magick Archer, Trickster, and Warfarer) via dynamic reflection.
 
-### 3. Loadout Presets & Combat Cycling
+### 4. Combat Damage Log UI (HUD Chatbox Style)
+- **Real-time Combat Log:** Displays incoming and outgoing damage numbers in an MMO/RPG-style on-screen chat log.
+- **Custom Screen Corner:** Position the log in any corner of the screen (**Bottom-Left**, **Top-Left**, **Bottom-Right**, or **Top-Right**) with configurable margins and width.
+- **Combat Stats & DPS:** Real-time combat DPS calculations, encounter total damage, and smooth alpha fadeout for older hits.
+- **Hit Highlights:** Distinct color coding for standard hits, high-damage hits, Pawn attacks, and weakpoint/critical strikes.
+
+### 5. Loadout Presets & Combat Cycling
 - **Multiple Presets Per Weapon:** Configure and save distinct skill builds for individual weapons (e.g., Elemental Mage vs. Support Mage, Burst Dagger vs. Counter Dagger).
 - **On-The-Fly Hotkey Cycling:** Cycle through your saved presets mid-battle using customizable controller combinations or keyboard hotkeys.
 - **Guild & Inn Customizer:** In-game guild editing mode allows you to fine-tune presets directly at vocation guilds and inns.
 
-### 4. Comprehensive Controller & Input Customization
+### 6. Comprehensive Controller & Input Customization
 - **Xbox & PlayStation Glyphs:** Supports native Xbox and DualShock/DualSense button prompts with automatic layout detection.
 - **Dual-Button Combos & Hold Timing:** Bind wheel triggers to single buttons or multi-button combinations (e.g., `LB + RB`, `L1 + R1`), with customizable hold thresholds.
 - **In-Game Diagnostic Overlay:** Real-time controller button monitor and stick axis visualizer built right into the REFramework menu.

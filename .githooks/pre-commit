@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-commit hook: ensures mod is built and version is updated whenever mod files are modified
+
+# Check if any mod-related files are staged
+MOD_CHANGED=$(git diff --cached --name-only | grep -E '^(reframework/|screenshot\.png|modinfo\.ini)')
+
+if [ -n "$MOD_CHANGED" ]; then
+    echo "[Hook] Mod changes detected. Updating version and generating build zip..."
+    # Check if modinfo.ini was already modified/staged (indicating version was already bumped)
+    MODINFO_STAGED=$(git diff --cached --name-only | grep '^modinfo\.ini$')
+    if [ -n "$MODINFO_STAGED" ]; then
+        powershell.exe -ExecutionPolicy Bypass -File ./build.ps1 -NoBump
+    else
+        powershell.exe -ExecutionPolicy Bypass -File ./build.ps1
+    fi
+    
+    # Stage the generated zip, modinfo, and lua file
+    git add modinfo.ini reframework/autorun/WarfarerRevamped.lua build/
+    echo "[Hook] Build zip and version updated and staged."
+fi
+
+exit 0

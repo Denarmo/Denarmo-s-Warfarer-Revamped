@@ -1,0 +1,61 @@
+MIT License
+
+Copyright (c) 2026 Denarmo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+ORIGINAL UPSTREAM WORKS & THIRD-PARTY ATTRIBUTION NOTICE
+-------------------------------------------------------------------------------
+
+Denarmo's Warfarer Revamped is an integrated and expanded derivative work based on
+and incorporating code, techniques, and designs from earlier community modifications.
+The maintainer (Denarmo) is NOT the original author or sole owner of the upstream
+codebases merged into this project.
+
+Original upstream works and contributors retain their original rights and credit:
+
+1. Warfarer's Arsenal
+   - Original Creator: LeyDWeMvc (Nexus Mods #1717)
+   - Scope: Radial weapon selection wheel GUI architecture, HUD GUI element
+     duplication, slow-motion steering logic, and direct equip switching routines.
+
+2. Enhanced Warfarer Vocation
+   - Original Creator: mue3UufKW (Nexus Mods #1142)
+   - Scope: Dynamic per-weapon skill palette swap system, loadout preset architecture,
+     and stamina toggle foundations.
+
+3. REFramework
+   - Original Creator: praydog and contributors
+   - Repository: https://github.com/praydog/REFramework
+   - Scope: REFramework runtime Lua scripting environment, ImGui bindings, and IL2CPP API.
+
+4. Damage Reference & Data
+   - Creator: xyzkljl1 (MyDD2Mod)
+   - Scope: Damage number world-space rendering references and enemy character-ID/name mapping.
+
+5. Dragon's Dogma 2
+   - All game content, assets, fonts, icons, names, and trademarks are property of
+     CAPCOM CO., LTD. This mod is an unofficial fan creation and is not affiliated
+     with or endorsed by Capcom.
+
+All new contributions, unified architectures, Dark Arisen DLC skill integrations,
+combat log HUD enhancements, floating damage number system, bugfixes, and refactors
+created by Denarmo are licensed under the MIT License above and may be freely
+used, studied, modified, and built upon by others.

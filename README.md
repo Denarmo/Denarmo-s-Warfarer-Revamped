@@ -6,6 +6,8 @@
 [![Game](https://img.shields.io/badge/Dragon's%20Dogma%202-Dark%20Arisen%20DLC-orange.svg)](https://www.dragonsdogma.com/)
 [![Framework](https://img.shields.io/badge/REFramework-Compatible-green.svg)](https://github.com/praydog/REFramework)
 [![Mod Manager](https://img.shields.io/badge/Fluffy%20Mod%20Manager-Ready-purple.svg)](https://www.fluffymodmanager.com/)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support-F1C40F?style=flat&logo=kofi&logoColor=black)](https://ko-fi.com/denarmo)
+[![Discord](https://img.shields.io/badge/Discord-@denarmo-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.com)
 
 An all-in-one, next-generation **REFramework** enhancement for the Warfarer vocation in **Dragon's Dogma 2**, built with native compatibility for the **Dragon's Dogma 2: Dark Arisen** expansion.
 
@@ -148,6 +150,13 @@ This project stands on the shoulders of the talented Dragon's Dogma 2 modding co
 - **[praydog](https://github.com/praydog/REFramework)** — For the indispensable **REFramework** tool, runtime IL2CPP API, and hook system.
 - **[xyzkljl1](https://github.com/xyzkljl1/MyDD2Mod)** — Damage Number rendering reference and the enemy character-ID/name data used by the combat log.
 - **[Capcom](https://www.capcom.com/)** — For creating Dragon's Dogma 2 and the Dark Arisen expansion.
+
+---
+
+## ☕ Support & 💬 Contact
+
+- **Support on Ko-fi:** If you enjoy *Denarmo's Warfarer Revamped* and want to support continued development and updates, consider buying me a coffee on **[Ko-fi (ko-fi.com/denarmo)](https://ko-fi.com/denarmo)**.
+- **Discord:** For mod questions, bug reports, or discussion, feel free to contact me directly on Discord at **`@denarmo`**.
 
 ---
 

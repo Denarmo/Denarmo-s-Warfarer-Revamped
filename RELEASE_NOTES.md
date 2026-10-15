@@ -1,3 +1,18 @@
+# Release v1.0.1 — Steam Cloud settings sync
+
+- Sync mod settings and skill presets between devices through Steam Cloud.
+- Include the native REFramework Steam Cloud plugin in the release package.
+- Import existing local settings when no cloud copy exists; retain local settings as an offline fallback.
+- Preserve offline edits across restarts and retry pending uploads.
+- Show Cloud status in the mod settings menu and preserve malformed or newer cloud settings.
+- Build and test the native plugin automatically before packaging and deployment.
+
+Install the complete package on each device, enable Steam Cloud for Dragon's Dogma 2, and restart the game after installing the DLL. After playing, exit the game and wait for Steam to finish syncing before switching devices. If Steam was unavailable when the script started, reconnect and reload scripts. Concurrent offline edits use the last uploaded copy.
+
+Validation: native Windows x64 build, DLL load/Lua bridge smoke test, and settings migration/offline/error recovery tests passed. Sync between two devices still needs in-game verification.
+
+---
+
 # Release v1.0.0 — Denarmo's Warfarer Revamped
 
 Initial official release of **Denarmo's Warfarer Revamped** for *Dragon's Dogma 2*, featuring native compatibility with the *Dragon's Dogma 2: Dark Arisen* expansion.

@@ -2,7 +2,7 @@
 
 ![Denarmo's Warfarer Revamped — Weapon Wheel, Skillsets, and Combat HUD](screenshot.png)
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases)
 [![Game](https://img.shields.io/badge/Dragon's%20Dogma%202-Dark%20Arisen%20DLC-orange.svg)](https://www.dragonsdogma.com/)
 [![Framework](https://img.shields.io/badge/REFramework-Compatible-green.svg)](https://github.com/praydog/REFramework)
 [![Mod Manager](https://img.shields.io/badge/Fluffy%20Mod%20Manager-Ready-purple.svg)](https://www.fluffymodmanager.com/)
@@ -64,7 +64,7 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 ## 📦 Installation
 
 ### Option A: Fluffy Mod Manager (Recommended)
-1. Download the latest release package: `Denarmo's Warfarer Revamped v1.0.0.zip` from the [Releases](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases) tab or `build/` folder.
+1. Download the latest release package: `Denarmo's Warfarer Revamped v1.0.1.zip` from the [Releases](https://github.com/Denarmo/Denarmo-s-Warfarer-Revamped/releases) tab or `build/` folder.
 2. Drop the `.zip` file directly into your Fluffy Mod Manager mod directory:
    ```
    <Fluffy Mod Manager Path>\Games\DragonsDogma2\Mods\
@@ -109,12 +109,31 @@ This mod merges and refines the core capabilities of two beloved Warfarer mods:
 
 ## 🛠️ Repository Structure
 
+### Steam Cloud settings
+
+Settings and skill presets sync through Dragon's Dogma 2's Steam Remote Storage using the included `reframework/plugins/WarfarerSteamCloud.dll`. Install the mod and plugin on each device, enable Steam Cloud for the game, and launch through Steam. Fully exit the game and wait for Steam to finish syncing before playing on another device. Restart the game after first installing the DLL; resetting Lua scripts alone cannot load a new native plugin.
+
+The mod imports existing `reframework/data/WarfarerRevamped/config.json` settings when no cloud copy exists. Later launches load the cloud copy, keeping the JSON as an offline fallback. Edits made offline are recorded in `cloud-state.json` and uploaded on a subsequent launch with Cloud available. If both devices have unsent edits, the device that uploads last wins; finish syncing before switching devices. Invalid cloud data is preserved and the local fallback is used. The REFramework settings menu shows Cloud status. If Steam is unavailable during script startup, reload scripts after reconnecting.
+
+Cloud storage uses only `WarfarerRevamped/settings-v1.json`; the plugin never modifies the game's saves. Steam controls transfer to its servers, so a successful API write still needs Steam's exit sync to complete.
+
+To build the native plugin, install CMake 3.24+ and an x64 C/C++ compiler (Visual Studio Build Tools or MinGW). The first configuration downloads Lua 5.4.3 and the pinned REFramework plugin API header. `build.ps1` builds and includes the DLL automatically. For a standalone MinGW build and settings tests:
+
+```powershell
+cmake -S native/steam-cloud -B native/steam-cloud/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build native/steam-cloud/build -j 4
+cmake --install native/steam-cloud/build --prefix .
+native/steam-cloud/build/warfarer_lua.exe tests/settings-cloud.lua
+```
+
+For runtime verification, change a setting on device A, exit, wait for Steam sync, then launch on device B with the mod installed and confirm the setting and Cloud status. Repeat with an offline edit and reconnect. These steps require running the game on both devices.
+
 ```
 Denarmo's Warfarer Revamped/
 ├── .github/                     # Issue templates and workflows
 ├── .githooks/                   # Git automation hooks (auto-versioning)
 ├── build/                       # Packaged distribution archives (.zip)
-│   └── Denarmo's Warfarer Revamped v1.0.0.zip
+│   └── Denarmo's Warfarer Revamped v1.0.1.zip
 ├── reframework/
 │   ├── autorun/
 │   │   └── WarfarerRevamped.lua # Unified Lua engine

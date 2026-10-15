@@ -11,3 +11,4 @@ build_merge.ps1
 scanner*.cs
 validator*.cs
 scratch/
+native/steam-cloud/build/

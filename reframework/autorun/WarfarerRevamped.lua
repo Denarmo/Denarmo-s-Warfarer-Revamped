@@ -1,7 +1,7 @@
 ﻿--[[
-  Denarmo's Warfarer Revamped 1.0.0
+  Denarmo's Warfarer Revamped 1.0.1
   A unified weapon wheel, dynamic skillsets, and combat HUD for the Warfarer (Dragon's Dogma 2).
-  Needs REFramework (no other plugins).
+  Needs REFramework. Steam Cloud also needs WarfarerSteamCloud.dll.
 
   LICENSING & ATTRIBUTION:
     This project is a derivative overhaul that merges, expands, and builds upon concepts
@@ -43,7 +43,7 @@
     * The slices' background is the game's own system menu background, cut to the wheel's shape from GUI copies of it.
     * Everything else (slices, trim, text, dimmer) is drawn with REFramework's imgui draw list.
 ]]
-local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.0", 47
+local MOD, VERSION, CFG_VERSION = "Denarmo's Warfarer Revamped", "1.0.1", 47
 local CFG_FILE = "WarfarerRevamped/config.json"
 local TAU = math.pi * 2
 local BF_INDEX = "<CurrentArisenWeaponIndex>k__BackingField"
@@ -175,6 +175,47 @@ local INT_KEYS = { "order_mode", "wheel_radius", "inner_radius", "center_radius"
   "stick_max", "warfarer_job", "bg_tol", "bg_max", "hl_alpha", "bg_grain", "bg_cover_frames", "bg_close_frames", "bg_border", "bg_outline", "pad_button", "pad_button2", "pad_type", "pad_stick", "pad_dead", "damage_log_corner", "damage_log_max_lines", "damage_log_offset_x", "damage_log_offset_y", "damage_log_width", "damage_log_text_size", "damage_floating_text_size" }
 
 local cfg, frame, dirty = {}, 0, false
+local Cloud = { status = "Plugin missing; settings saved locally", pending = false, writable = false }
+local CLOUD_STATE = "WarfarerRevamped/cloud-state.json"
+
+-- A durable pending flag preserves edits made offline across restarts. Steam's
+-- synchronized copy wins on other devices unless this device has unsent edits.
+function Cloud.load(local_saved)
+  local ok, state = pcall(json.load_file, CLOUD_STATE)
+  Cloud.pending = ok and type(state) == "table" and state.pending == true and type(local_saved) == "table"
+  if type(warfarer_steam_cloud) ~= "table" then return local_saved end
+  local called, status, bytes = pcall(warfarer_steam_cloud.read)
+  Cloud.writable = called and (status == "ok" or status == "missing")
+  if not Cloud.writable then
+    Cloud.status = "Unavailable; using local settings (reload scripts to reconnect)"
+    return local_saved
+  end
+  if Cloud.pending then
+    Cloud.status = "Local changes waiting to upload"
+    dirty = true
+    return local_saved
+  end
+  if status == "ok" then
+    local parsed, saved = pcall(json.load_string, bytes)
+    if not parsed or type(saved) ~= "table" or type(saved.cfg_version) ~= "number" then
+      Cloud.writable = false
+      Cloud.status = "Invalid cloud settings; using local copy (cloud file preserved)"
+      return local_saved
+    end
+    if saved.cfg_version > CFG_VERSION then
+      Cloud.writable = false
+      Cloud.status = "Cloud settings need a newer mod version; using local copy"
+      return local_saved
+    end
+    Cloud.status = "Loaded settings from Steam Cloud"
+    -- Keep a fallback for a later offline launch. Do not mark a download as an edit.
+    pcall(json.dump_file, CFG_FILE, saved)
+    return saved
+  end
+  Cloud.status = "No cloud settings yet; local settings will upload"
+  dirty = true
+  return local_saved
+end
 local SCALE_BASE = 1.2                      -- the wheel's size at "scale 1.0" is what 1.2 used to be
 local last_error = nil                   -- shown at the bottom of the settings window
 
@@ -188,6 +229,8 @@ end
 local function load_cfg()
   for k, v in pairs(DEFAULTS) do cfg[k] = deep_copy(v) end
   local ok, saved = pcall(json.load_file, CFG_FILE)
+  saved = Cloud.load(ok and saved or nil)
+  ok = type(saved) == "table"
   if ok and type(saved) == "table" then
     for k, v in pairs(saved) do
       if DEFAULTS[k] ~= nil and type(v) == type(DEFAULTS[k]) and k ~= "theme" then cfg[k] = v end
@@ -213,7 +256,34 @@ local function load_cfg()
   for _, vk in ipairs(cfg.hotkey) do hk[#hk + 1] = math.floor(tonumber(vk) or 0) end
   cfg.hotkey = hk
 end
-local function save_cfg() pcall(json.dump_file, CFG_FILE, cfg); dirty = false end
+local function save_cfg()
+  -- Write the journal before the settings so a failed upload cannot lose an edit.
+  local journal_ok, journal_result = pcall(json.dump_file, CLOUD_STATE, { pending = true })
+  local local_ok, local_result = pcall(json.dump_file, CFG_FILE, cfg)
+  if not local_ok or local_result == false then
+    Cloud.status = "Local settings write failed; retrying"
+    dirty = true
+    return
+  end
+  Cloud.pending = true
+  dirty = false
+  if not journal_ok or journal_result == false then
+    Cloud.status = "Cloud journal write failed; retrying"
+    dirty = true
+    return
+  end
+  if not Cloud.writable then return end
+  local encoded, bytes = pcall(json.dump_string, cfg)
+  local uploaded, success = false, false
+  if encoded then uploaded, success = pcall(warfarer_steam_cloud.write, bytes) end
+  if uploaded and success then
+    local cleared, result = pcall(json.dump_file, CLOUD_STATE, { pending = false })
+    Cloud.pending = not cleared or result == false
+    Cloud.status = Cloud.pending and "Uploaded; local journal needs retry" or "Saved to Steam Cloud (Steam syncs after game exits)"
+  else
+    Cloud.status = "Upload failed; local changes waiting to retry"
+  end
+end
 local function mark_dirty() dirty = true end
 load_cfg()
 
@@ -5349,7 +5419,7 @@ re.on_frame(function()
     end
     handle_hotkey()
     Slow.update()
-    if dirty and frame % 90 == 0 then save_cfg() end
+    if frame % 90 == 0 and (dirty or (Cloud.pending and Cloud.writable and frame % 900 == 0)) then save_cfg() end
   end)
   if not ok then last_error = tostring(err) end
   Dim.step(W.open or W.pinned)
@@ -5459,6 +5529,7 @@ local function draw_main_ui()
   if imgui.button("Restore All Mod Settings to Defaults##res_all_master") then
     reset_all_defaults()
   end
+  imgui.text("Steam Cloud: " .. Cloud.status)
   if imgui.button("Restore General Defaults##res_sec_gen") then
     reset_keys({ "enabled", "skill_wheel", "skill_hold", "order_mode", "show_name" })
   end

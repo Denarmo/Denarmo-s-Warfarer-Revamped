@@ -63,6 +63,29 @@ if (Test-Path $luaFile) {
 }
 
 # 5. Prepare build directory
+# Build/install the Steam Cloud bridge before packaging, including on clean checkouts.
+& cmake -S (Join-Path $repoRoot "native\steam-cloud") -B (Join-Path $repoRoot "native\steam-cloud\build")
+if ($LASTEXITCODE -ne 0) { throw "Steam Cloud plugin configuration failed" }
+& cmake --build (Join-Path $repoRoot "native\steam-cloud\build") --config Release
+if ($LASTEXITCODE -ne 0) { throw "Steam Cloud plugin build failed" }
+# Check the packaged script and exercise the compiled bridge before deployment.
+$nativeBuild = Join-Path $repoRoot "native\steam-cloud\build"
+$nativeBin = $nativeBuild
+if (Test-Path (Join-Path $nativeBuild "Release\warfarer_lua.exe")) {
+    $nativeBin = Join-Path $nativeBuild "Release"
+}
+Push-Location $repoRoot
+try {
+    & (Join-Path $nativeBin "warfarer_lua.exe") "tests/settings-cloud.lua"
+    if ($LASTEXITCODE -ne 0) { throw "Settings tests failed" }
+    & (Join-Path $nativeBin "cloud_smoke.exe") (Join-Path $nativeBin "WarfarerSteamCloud.dll")
+    if ($LASTEXITCODE -ne 0) { throw "Steam Cloud plugin smoke test failed" }
+} finally {
+    Pop-Location
+}
+& cmake --install (Join-Path $repoRoot "native\steam-cloud\build") --config Release --prefix $repoRoot
+if ($LASTEXITCODE -ne 0) { throw "Steam Cloud plugin installation failed" }
+
 $buildDir = Join-Path $repoRoot "build"
 if (-not (Test-Path $buildDir)) {
     New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
@@ -134,6 +157,10 @@ if (Test-Path $fluffyDir) {
 $gameLua = "D:\SteamLibrary\steamapps\common\Dragons Dogma 2\reframework\autorun\WarfarerRevamped.lua"
 if (-not $SkipGameDeploy -and (Test-Path (Split-Path $gameLua))) {
     Copy-Item -Path $luaFile -Destination $gameLua -Force
+    $gamePlugins = Join-Path (Split-Path (Split-Path $gameLua)) "plugins"
+    New-Item -ItemType Directory -Force -Path $gamePlugins | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot "reframework\plugins\WarfarerSteamCloud.dll") -Destination $gamePlugins -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot "reframework\plugins\WarfarerSteamCloud-licenses") -Destination $gamePlugins -Recurse -Force
     Write-Host "Deployed updated script to game: $gameLua" -ForegroundColor Green
 }
 

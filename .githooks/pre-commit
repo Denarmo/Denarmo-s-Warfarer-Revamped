@@ -15,7 +15,7 @@ if [ -n "$MOD_CHANGED" ]; then
     fi
     
     # Stage the generated zip, modinfo, and lua file
-    git add modinfo.ini reframework/autorun/WarfarerRevamped.lua build/
+    git add modinfo.ini reframework/autorun/WarfarerRevamped.lua reframework/plugins/ build/
     echo "[Hook] Build zip and version updated and staged."
 fi
 

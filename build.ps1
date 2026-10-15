@@ -44,7 +44,7 @@ $modinfoContent = @"
 name=Denarmo's Warfarer Revamped
 version=$targetVersion
 author=Denarmo
-description=Unified Warfarer mod combining radial weapon wheel, dynamic skillsets (6 slots), presets, and Dark Arisen DLC skills.
+description=Unified Warfarer mod with radial weapon wheel, dynamic skillsets (6 slots), presets, Dark Arisen DLC skills, and Steam Cloud settings sync.
 screenshot=screenshot.png
 "@
 [System.IO.File]::WriteAllText($modinfoFile, $modinfoContent.Trim() + "`r`n", [System.Text.Encoding]::UTF8)
@@ -58,6 +58,7 @@ if (Test-Path $luaFile) {
         '(local MOD,\s*VERSION,\s*CFG_VERSION\s*=\s*"[^"]+",\s*")[^"]+(")',
         "`${1}$targetVersion`${2}"
     )
+    $newLua = [System.Text.RegularExpressions.Regex]::Replace($newLua, "(Denarmo's Warfarer Revamped )\d+\.\d+\.\d+", "`${1}$targetVersion")
     [System.IO.File]::WriteAllText($luaFile, $newLua, [System.Text.Encoding]::UTF8)
     Write-Host "Updated WarfarerRevamped.lua with version $targetVersion" -ForegroundColor Green
 }

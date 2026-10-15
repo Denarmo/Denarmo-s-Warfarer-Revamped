@@ -1,4 +1,4 @@
-# Release v1.0.1 — Steam Cloud settings sync
+# Release v1.0.2 — Steam Cloud settings sync
 
 - Sync mod settings and skill presets between devices through Steam Cloud.
 - Include the native REFramework Steam Cloud plugin in the release package.

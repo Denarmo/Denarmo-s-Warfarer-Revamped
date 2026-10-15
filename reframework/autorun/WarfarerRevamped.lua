@@ -1,5 +1,5 @@
 ﻿--[[
-  Denarmo's Warfarer Revamped 1.0.1
+  Denarmo's Warfarer Revamped 1.0.2
   A unified weapon wheel, dynamic skillsets, and combat HUD for the Warfarer (Dragon's Dogma 2).
   Needs REFramework. Steam Cloud also needs WarfarerSteamCloud.dll.
 
